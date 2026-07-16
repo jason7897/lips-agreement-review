@@ -8,83 +8,173 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <style>
   :root {
-    --bg: #f5f6f8; --card: #ffffff; --border: #e2e4e8; --text: #1c1e21;
-    --muted: #6b7280; --accent: #2f6fed;
-    --ok-bg: #e8f5e9; --ok-fg: #1b7a2e;
-    --warn-bg: #fff8e1; --warn-fg: #916800;
-    --bad-bg: #fdecea; --bad-fg: #b3261e;
+    --bg: #f4f5f7; --card: #ffffff; --card-2: #fafbfc; --border: #e3e5e9; --text: #1a1d24;
+    --muted: #6b7280; --muted-2: #9aa1ac; --accent: #2f6fed; --accent-2: #1d54c7; --accent-soft: #eaf1ff;
+    --ok-bg: #e8f5e9; --ok-fg: #1b7a2e; --ok-dot: #2e9e42;
+    --warn-bg: #fff8e1; --warn-fg: #8a6100; --warn-dot: #d69e00;
+    --bad-bg: #fdecea; --bad-fg: #b3261e; --bad-dot: #d93a2d;
+    --unk-bg: #eceef1; --unk-fg: #555c66; --unk-dot: #8b93a0;
+    --radius: 12px; --radius-sm: 8px;
+    --shadow-sm: 0 1px 2px rgba(20,22,30,.04), 0 1px 1px rgba(20,22,30,.03);
+    --shadow-md: 0 4px 16px rgba(20,22,30,.06), 0 1px 3px rgba(20,22,30,.05);
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #14161b; --card: #1c1f26; --card-2: #20232b; --border: #2c3038; --text: #e7e9ed;
+      --muted: #9aa1ac; --muted-2: #6b7280; --accent: #5b8def; --accent-2: #7ea6f5; --accent-soft: #1c2c4a;
+      --ok-bg: #133422; --ok-fg: #5fd489; --ok-dot: #3fb96a;
+      --warn-bg: #3a2e0a; --warn-fg: #f0c34e; --warn-dot: #e0b02e;
+      --bad-bg: #3a1715; --bad-fg: #f2897d; --bad-dot: #e5564a;
+      --unk-bg: #262a32; --unk-fg: #b7bcc4; --unk-dot: #8b93a0;
+      --shadow-sm: 0 1px 2px rgba(0,0,0,.25);
+      --shadow-md: 0 8px 24px rgba(0,0,0,.35);
+      color-scheme: dark;
+    }
   }
   * { box-sizing: border-box; }
-  body { margin: 0; font-family: -apple-system, "Malgun Gothic", "Apple SD Gothic Neo", sans-serif;
-    background: var(--bg); color: var(--text); }
-  header { background: var(--card); border-bottom: 1px solid var(--border); padding: 16px 24px;
-    display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; flex-wrap: wrap; }
-  header h1 { font-size: 18px; margin: 0; }
-  header p { margin: 4px 0 0; color: var(--muted); font-size: 13px; }
-  nav { display: flex; gap: 4px; padding: 0 24px; background: var(--card); border-bottom: 1px solid var(--border); }
-  nav button { border: none; background: none; padding: 12px 16px; font-size: 14px; cursor: pointer; color: var(--muted);
-    border-bottom: 2px solid transparent; }
-  nav button.active { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
-  main { max-width: 1000px; margin: 24px auto; padding: 0 24px; }
+  html, body { height: 100%; }
+  body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Malgun Gothic", "Apple SD Gothic Neo", sans-serif;
+    background: var(--bg); color: var(--text); -webkit-font-smoothing: antialiased; line-height: 1.5; }
+
+  header { background: var(--card); border-bottom: 1px solid var(--border); padding: 18px 28px;
+    display: flex; justify-content: space-between; align-items: flex-start; gap: 20px; flex-wrap: wrap;
+    position: sticky; top: 0; z-index: 10; }
+  header .title-row { display: flex; align-items: center; gap: 8px; }
+  header h1 { font-size: 17px; margin: 0; font-weight: 700; letter-spacing: -.01em; }
+  .tag { display: inline-flex; align-items: center; gap: 4px; background: var(--accent-soft); color: var(--accent-2);
+    font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 999px; }
+  header p { margin: 6px 0 0; color: var(--muted); font-size: 12.5px; max-width: 640px; }
+  .privacy-note { display: inline-flex; align-items: center; gap: 6px; margin-top: 8px; padding: 5px 10px;
+    background: var(--card-2); border: 1px solid var(--border); border-radius: 999px; color: var(--muted); font-size: 11.5px; }
+
+  nav { display: flex; gap: 2px; padding: 0 28px; background: var(--card); border-bottom: 1px solid var(--border); }
+  nav button { border: none; background: none; padding: 13px 16px; font-size: 13.5px; cursor: pointer; color: var(--muted);
+    border-bottom: 2px solid transparent; display: flex; align-items: center; gap: 6px; font-weight: 500;
+    transition: color .15s ease, border-color .15s ease; }
+  nav button:hover { color: var(--text); }
+  nav button.active { color: var(--accent); border-bottom-color: var(--accent); font-weight: 700; }
+
+  main { max-width: 1040px; margin: 28px auto 60px; padding: 0 28px; }
   .view { display: none; }
-  .view.active { display: block; }
-  .card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 20px; margin-bottom: 16px; }
-  .card h2 { font-size: 15px; margin: 0 0 12px; }
+  .view.active { display: block; animation: fadeIn .15s ease; }
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(2px); } to { opacity: 1; transform: none; } }
+
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: 22px;
+    margin-bottom: 16px; box-shadow: var(--shadow-sm); }
+  .card h2 { font-size: 14.5px; margin: 0 0 14px; font-weight: 700; display: flex; align-items: center; gap: 7px; }
   .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-  input[type=file], input[type=password], input[type=text] { font-size: 13px; }
-  input[type=password], input[type=text] { padding: 7px 10px; border: 1px solid var(--border); border-radius: 6px; min-width: 260px; }
-  button.primary { background: var(--accent); color: #fff; border: none; border-radius: 6px; padding: 9px 16px;
-    font-size: 13px; cursor: pointer; }
+
+  .dropzone { border: 1.5px dashed var(--border); border-radius: var(--radius-sm); padding: 18px 16px;
+    display: flex; align-items: center; gap: 14px; background: var(--card-2); transition: border-color .15s ease, background .15s ease; }
+  .dropzone:has(input:focus-visible) { border-color: var(--accent); }
+  .dropzone .dz-icon { font-size: 22px; line-height: 1; }
+  .dropzone .dz-file { flex: 1; min-width: 180px; font-size: 12.5px; color: var(--muted); }
+  .dropzone .dz-file b { color: var(--text); font-weight: 600; }
+
+  input[type=file] { font-size: 12.5px; color: var(--muted); max-width: 100%; }
+  input[type=password], input[type=text] { font-size: 13px; padding: 8px 12px; border: 1px solid var(--border);
+    border-radius: var(--radius-sm); min-width: 260px; background: var(--card); color: var(--text);
+    transition: border-color .15s ease, box-shadow .15s ease; }
+  input[type=password]:focus, input[type=text]:focus { outline: none; border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-soft); }
+
+  button.primary { background: var(--accent); color: #fff; border: none; border-radius: var(--radius-sm); padding: 10px 18px;
+    font-size: 13px; font-weight: 600; cursor: pointer; box-shadow: var(--shadow-sm);
+    transition: background .15s ease, transform .05s ease; }
+  button.primary:hover:not(:disabled) { background: var(--accent-2); }
+  button.primary:active:not(:disabled) { transform: translateY(1px); }
   button.primary:disabled { opacity: .5; cursor: not-allowed; }
-  button.ghost { background: none; border: 1px solid var(--border); border-radius: 6px; padding: 9px 14px;
-    font-size: 13px; cursor: pointer; color: var(--text); }
-  table { width: 100%; border-collapse: collapse; font-size: 13px; }
-  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
-  th { color: var(--muted); font-weight: 600; font-size: 12px; }
-  .badge { display: inline-block; padding: 3px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; white-space: nowrap; }
+  button.ghost { background: none; border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 9px 14px;
+    font-size: 13px; cursor: pointer; color: var(--text); transition: background .15s ease, border-color .15s ease; }
+  button.ghost:hover { background: var(--card-2); border-color: var(--muted-2); }
+
+  .table-wrap { overflow-x: auto; border-radius: var(--radius-sm); border: 1px solid var(--border); }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; min-width: 640px; }
+  th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  thead th { color: var(--muted); font-weight: 700; font-size: 11.5px; text-transform: uppercase; letter-spacing: .03em;
+    background: var(--card-2); position: sticky; top: 0; }
+  tbody tr:last-child td { border-bottom: none; }
+  tbody tr:hover { background: var(--card-2); }
+
+  .badge { display: inline-flex; align-items: center; gap: 5px; padding: 3px 10px 3px 8px; border-radius: 999px;
+    font-size: 12px; font-weight: 700; white-space: nowrap; }
+  .badge::before { content: ''; width: 6px; height: 6px; border-radius: 50%; display: inline-block; }
   .badge.적합 { background: var(--ok-bg); color: var(--ok-fg); }
+  .badge.적합::before { background: var(--ok-dot); }
   .badge.수정필요 { background: var(--warn-bg); color: var(--warn-fg); }
+  .badge.수정필요::before { background: var(--warn-dot); }
   .badge.불가 { background: var(--bad-bg); color: var(--bad-fg); }
-  .badge.확인필요 { background: #ececec; color: #555; }
+  .badge.불가::before { background: var(--bad-dot); }
+  .badge.확인필요 { background: var(--unk-bg); color: var(--unk-fg); }
+  .badge.확인필요::before { background: var(--unk-dot); }
+
   .muted { color: var(--muted); font-size: 12px; }
   .item-content { max-width: 320px; max-height: 80px; overflow-y: auto; white-space: pre-wrap; font-size: 12px; color: var(--muted); }
-  #spinner, #spinner-g { display: none; margin-left: 8px; font-size: 13px; color: var(--muted); }
-  .empty { color: var(--muted); font-size: 13px; padding: 24px; text-align: center; }
-  .summary { display: flex; gap: 16px; margin-bottom: 12px; font-size: 13px; }
-  .summary b { font-size: 16px; }
-  .link-btn { background: none; border: none; color: var(--accent); cursor: pointer; padding: 0; font-size: 13px; text-decoration: underline; }
-  .warn-box { background: var(--warn-bg); color: var(--warn-fg); border-radius: 8px; padding: 10px 14px; font-size: 13px; margin-bottom: 12px; }
+
+  .spinner-inline { display: none; align-items: center; gap: 8px; margin-left: 4px; font-size: 12.5px; color: var(--muted); }
+  .spinner-inline.show { display: inline-flex; }
+  .spin-ring { width: 14px; height: 14px; border: 2px solid var(--border); border-top-color: var(--accent);
+    border-radius: 50%; animation: spin .7s linear infinite; flex: none; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .empty { color: var(--muted); font-size: 13px; padding: 40px 24px; text-align: center; }
+  .empty .empty-icon { font-size: 26px; display: block; margin-bottom: 8px; opacity: .6; }
+
+  .summary { display: flex; gap: 10px; margin-bottom: 16px; flex-wrap: wrap; }
+  .stat { flex: 1; min-width: 100px; background: var(--card-2); border: 1px solid var(--border); border-radius: var(--radius-sm);
+    padding: 12px 14px; }
+  .stat .stat-label { font-size: 11.5px; color: var(--muted); font-weight: 600; display: flex; align-items: center; gap: 5px; }
+  .stat .stat-label::before { content: ''; width: 7px; height: 7px; border-radius: 50%; display: inline-block; }
+  .stat.ok .stat-label::before { background: var(--ok-dot); }
+  .stat.warn .stat-label::before { background: var(--warn-dot); }
+  .stat.bad .stat-label::before { background: var(--bad-dot); }
+  .stat.unk .stat-label::before { background: var(--unk-dot); }
+  .stat b { font-size: 20px; display: block; margin-top: 3px; }
+
+  .link-btn { background: none; border: none; color: var(--accent); cursor: pointer; padding: 0; font-size: 13px;
+    text-decoration: underline; font-weight: 500; }
+  .link-btn:hover { color: var(--accent-2); }
+  .warn-box { background: var(--warn-bg); color: var(--warn-fg); border-radius: var(--radius-sm); padding: 10px 14px;
+    font-size: 13px; margin-bottom: 12px; }
+  .err-box { background: var(--bad-bg); color: var(--bad-fg); border-radius: var(--radius-sm); padding: 14px 16px; font-size: 13px; }
   .key-box { display: flex; gap: 6px; align-items: center; font-size: 12px; color: var(--muted); }
+
+  footer.app-footer { max-width: 1040px; margin: 0 auto 40px; padding: 0 28px; color: var(--muted-2); font-size: 11.5px; text-align: center; }
 </style>
 </head>
 <body>
 
 <header>
   <div>
-    <h1>LIPS 협약 사업계획서 검토 도구</h1>
-    <p>중기부 운영지침을 학습시키고, 사업계획서를 올리면 수정사항/불가 항목을 1차로 걸러줍니다. (참고용 1차 검토이며 최종 판단은 담당자가 합니다)</p>
-    <p class="muted">모든 처리는 이 브라우저 안에서만 이뤄지고, 데이터는 이 컴퓨터의 브라우저(localStorage)에만 저장됩니다. 서버로 전송되지 않습니다 (Groq API 호출 제외).</p>
+    <div class="title-row">
+      <h1>LIPS 협약 사업계획서 검토 도구</h1>
+      <span class="tag">참고용 1차 검토</span>
+    </div>
+    <p>중기부 운영지침을 학습시키고, 사업계획서를 올리면 수정사항/불가 항목을 1차로 걸러줍니다. 최종 판단은 반드시 담당자가 직접 확인하세요.</p>
+    <span class="privacy-note">🔒 모든 처리는 이 브라우저 안에서만, 데이터는 이 컴퓨터에만 저장 (Groq 호출 제외)</span>
   </div>
   <div class="key-box" id="key-box"></div>
 </header>
 
 <nav>
-  <button class="tab active" data-view="review">사업계획서 검토</button>
-  <button class="tab" data-view="guidelines">지침 관리</button>
-  <button class="tab" data-view="history">검토 이력</button>
+  <button class="tab active" data-view="review">📝 사업계획서 검토</button>
+  <button class="tab" data-view="guidelines">📚 지침 관리</button>
+  <button class="tab" data-view="history">🕘 검토 이력</button>
 </nav>
 
 <main>
 
   <div id="view-review" class="view active">
     <div class="card">
-      <h2>사업계획서 업로드</h2>
-      <div class="row">
-        <input type="file" id="plan-file" accept=".pdf,.hwpx" />
+      <h2>📝 사업계획서 업로드</h2>
+      <div class="dropzone">
+        <span class="dz-icon">📄</span>
+        <div class="dz-file"><input type="file" id="plan-file" accept=".pdf,.hwpx" /></div>
         <button class="primary" id="btn-review">검토 시작</button>
-        <span id="spinner">⏳ 검토 중... (항목이 많으면 1~2분 걸릴 수 있어요)</span>
+        <span class="spinner-inline" id="spinner"><span class="spin-ring"></span>검토 중... (항목이 많으면 1~2분 걸릴 수 있어요)</span>
       </div>
-      <p class="muted" id="review-hint"></p>
+      <p class="muted" id="review-hint" style="margin-top:12px"></p>
       <p class="muted">⚠️ 구버전 .hwp 파일은 브라우저에서 직접 열 수 없습니다. 한글 프로그램에서 <b>"다른 이름으로 저장 → PDF"</b> 또는 "HWPX"로 저장한 뒤 업로드해주세요.</p>
     </div>
     <div id="review-result"></div>
@@ -92,17 +182,31 @@
 
   <div id="view-guidelines" class="view">
     <div class="card">
-      <h2>지침 문서 업로드</h2>
-      <div class="row">
-        <input type="file" id="guideline-file" accept=".pdf,.hwpx" />
+      <h2>📚 지침 문서 업로드</h2>
+      <div class="dropzone">
+        <span class="dz-icon">📑</span>
+        <div class="dz-file"><input type="file" id="guideline-file" accept=".pdf,.hwpx" /></div>
         <button class="primary" id="btn-upload-guideline">업로드 및 학습</button>
-        <span id="spinner-g">⏳ 처리 중...</span>
+        <span class="spinner-inline" id="spinner-g"><span class="spin-ring"></span>처리 중...</span>
       </div>
-      <p class="muted">사업비 관리지침, 운영지침 등 여러 문서를 순서대로 업로드할 수 있습니다 (누적됩니다). 구버전 .hwp는 PDF/HWPX로 변환 후 업로드하세요.</p>
+      <p class="muted" style="margin-top:12px">사업비 관리지침, 운영지침 등 여러 문서를 순서대로 업로드할 수 있습니다 (누적됩니다). 구버전 .hwp는 PDF/HWPX로 변환 후 업로드하세요.</p>
+    </div>
+    <div class="card">
+      <h2>✏️ 텍스트로 직접 학습</h2>
+      <p class="muted" style="margin:0 0 10px">파일이 없어도, 조항 내용을 아래에 직접 붙여넣어 학습시킬 수 있습니다 (이메일/공문 본문, 캡처 후 복사한 텍스트 등).</p>
+      <div class="row" style="margin-bottom:8px">
+        <input type="text" id="guideline-text-label" placeholder="문서명 (예: 2026년 사업비 관리지침 제5조)" style="min-width:320px" />
+      </div>
+      <textarea id="guideline-text-input" rows="6" placeholder="여기에 지침 조항 내용을 붙여넣으세요..."
+        style="width:100%; font-size:13px; padding:10px 12px; border:1px solid var(--border); border-radius:var(--radius-sm);
+        background:var(--card); color:var(--text); font-family:inherit; resize:vertical;"></textarea>
+      <div class="row" style="margin-top:10px">
+        <button class="primary" id="btn-add-guideline-text">텍스트 학습 추가</button>
+      </div>
     </div>
     <div class="card">
       <div class="row" style="justify-content: space-between;">
-        <h2 style="margin:0">학습된 지침 목록</h2>
+        <h2 style="margin:0">📋 학습된 지침 목록</h2>
         <button class="ghost" id="btn-clear-guidelines">전체 삭제</button>
       </div>
       <div id="guideline-list"></div>
@@ -111,13 +215,15 @@
 
   <div id="view-history" class="view">
     <div class="card">
-      <h2>검토 이력</h2>
+      <h2>🕘 검토 이력</h2>
       <div id="history-list"></div>
     </div>
     <div id="history-detail"></div>
   </div>
 
 </main>
+
+<footer class="app-footer">립스협약 도구 · 로컬 전용 · 서버로 전송되지 않음 (Groq API 호출 제외)</footer>
 
 <script>
 /* ===================== 공통 유틸 ===================== */
@@ -405,12 +511,12 @@ function renderResultTable(items) {
 
   let html = `<div class="card">
     <div class="summary">
-      <span>적합 <b>${counts['적합'] || 0}</b></span>
-      <span>수정필요 <b>${counts['수정필요'] || 0}</b></span>
-      <span>불가 <b>${counts['불가'] || 0}</b></span>
-      ${counts['확인필요'] ? `<span>확인필요 <b>${counts['확인필요']}</b></span>` : ''}
+      <div class="stat ok"><span class="stat-label">적합</span><b>${counts['적합'] || 0}</b></div>
+      <div class="stat warn"><span class="stat-label">수정필요</span><b>${counts['수정필요'] || 0}</b></div>
+      <div class="stat bad"><span class="stat-label">불가</span><b>${counts['불가'] || 0}</b></div>
+      ${counts['확인필요'] ? `<div class="stat unk"><span class="stat-label">확인필요</span><b>${counts['확인필요']}</b></div>` : ''}
     </div>
-    <table>
+    <div class="table-wrap"><table>
       <thead><tr><th>항목</th><th>판정</th><th>사유</th><th>근거 지침</th><th>수정 제안</th></tr></thead>
       <tbody>`;
   for (const it of items) {
@@ -422,7 +528,7 @@ function renderResultTable(items) {
       <td>${escapeHtml(it.suggestion)}</td>
     </tr>`;
   }
-  html += `</tbody></table></div>`;
+  html += `</tbody></table></div></div>`;
   return html;
 }
 
@@ -431,7 +537,7 @@ $('#btn-review').addEventListener('click', async () => {
   if (!fileInput.files.length) { alert('사업계획서 파일을 선택하세요.'); return; }
   const btn = $('#btn-review');
   btn.disabled = true;
-  $('#spinner').style.display = 'inline';
+  $('#spinner').classList.add('show');
   $('#review-result').innerHTML = '';
   try {
     const file = fileInput.files[0];
@@ -441,10 +547,10 @@ $('#btn-review').addEventListener('click', async () => {
     saveSession(file.name, items);
     $('#review-result').innerHTML = renderResultTable(items);
   } catch (e) {
-    $('#review-result').innerHTML = `<div class="card" style="color:#b3261e">오류: ${escapeHtml(e.message)}</div>`;
+    $('#review-result').innerHTML = `<div class="card err-box">오류: ${escapeHtml(e.message)}</div>`;
   } finally {
     btn.disabled = false;
-    $('#spinner').style.display = 'none';
+    $('#spinner').classList.remove('show');
   }
 });
 
@@ -453,7 +559,7 @@ $('#btn-upload-guideline').addEventListener('click', async () => {
   if (!fileInput.files.length) { alert('지침 파일을 선택하세요.'); return; }
   const btn = $('#btn-upload-guideline');
   btn.disabled = true;
-  $('#spinner-g').style.display = 'inline';
+  $('#spinner-g').classList.add('show');
   try {
     const file = fileInput.files[0];
     const text = await extractText(file);
@@ -466,8 +572,22 @@ $('#btn-upload-guideline').addEventListener('click', async () => {
     alert('오류: ' + e.message);
   } finally {
     btn.disabled = false;
-    $('#spinner-g').style.display = 'none';
+    $('#spinner-g').classList.remove('show');
   }
+});
+
+$('#btn-add-guideline-text').addEventListener('click', () => {
+  const textInput = $('#guideline-text-input');
+  const labelInput = $('#guideline-text-label');
+  const text = textInput.value.trim();
+  if (!text) { alert('학습시킬 내용을 입력하세요.'); return; }
+  const label = labelInput.value.trim() || `직접 입력 (${new Date().toLocaleString()})`;
+  const chunks = splitGuidelineSections(text);
+  if (!chunks.length) { alert('내용에서 학습할 조항을 찾지 못했습니다.'); return; }
+  addGuidelineChunks(label, chunks);
+  textInput.value = '';
+  labelInput.value = '';
+  refreshGuidelinesView();
 });
 
 $('#btn-clear-guidelines').addEventListener('click', () => {
@@ -484,12 +604,12 @@ function refreshGuidelinesView() {
     : '⚠️ 아직 학습된 지침이 없습니다. "지침 관리" 탭에서 먼저 업로드하세요.';
   const list = $('#guideline-list');
   if (!sources.length) {
-    list.innerHTML = '<div class="empty">아직 업로드된 지침이 없습니다.</div>';
+    list.innerHTML = '<div class="empty"><span class="empty-icon">📭</span>아직 업로드된 지침이 없습니다.</div>';
     return;
   }
-  list.innerHTML = `<table><thead><tr><th>파일명</th><th>조항 수</th><th>업로드 시각</th></tr></thead><tbody>` +
+  list.innerHTML = `<div class="table-wrap"><table><thead><tr><th>출처</th><th>조항 수</th><th>업로드 시각</th></tr></thead><tbody>` +
     sources.map(s => `<tr><td>${escapeHtml(s.source_file)}</td><td>${s.n}</td><td class="muted">${escapeHtml(new Date(s.uploaded_at).toLocaleString())}</td></tr>`).join('') +
-    `</tbody></table>`;
+    `</tbody></table></div>`;
 }
 
 function refreshHistoryView() {
@@ -497,13 +617,13 @@ function refreshHistoryView() {
   const list = $('#history-list');
   $('#history-detail').innerHTML = '';
   if (!sessions.length) {
-    list.innerHTML = '<div class="empty">검토 이력이 없습니다.</div>';
+    list.innerHTML = '<div class="empty"><span class="empty-icon">🗂️</span>검토 이력이 없습니다.</div>';
     return;
   }
-  list.innerHTML = `<table><thead><tr><th>파일명</th><th>검토 시각</th><th></th></tr></thead><tbody>` +
+  list.innerHTML = `<div class="table-wrap"><table><thead><tr><th>파일명</th><th>검토 시각</th><th></th></tr></thead><tbody>` +
     sessions.map(s => `<tr><td>${escapeHtml(s.filename)}</td><td class="muted">${escapeHtml(new Date(s.created_at).toLocaleString())}</td>
       <td><button class="link-btn" data-session="${s.id}">결과 보기</button></td></tr>`).join('') +
-    `</tbody></table>`;
+    `</tbody></table></div>`;
   list.querySelectorAll('[data-session]').forEach(btn => {
     btn.addEventListener('click', () => {
       const session = sessions.find(s => s.id === Number(btn.dataset.session));
