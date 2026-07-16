@@ -424,6 +424,7 @@ function findRelevantGuidelines(query, topK = 5) {
 const LS_GUIDELINES = 'lips_guidelines_v1';
 const LS_SESSIONS = 'lips_sessions_v1';
 const LS_GROQ_KEY = 'lips_groq_api_key';
+const LS_SEEDED_DEFAULTS = 'lips_seeded_defaults_v1';
 
 function loadGuidelines() {
   try { return JSON.parse(localStorage.getItem(LS_GUIDELINES) || '[]'); } catch { return []; }
@@ -445,6 +446,22 @@ function listGuidelineSources() {
     if (g.uploaded_at > map[g.source_file].uploaded_at) map[g.source_file].uploaded_at = g.uploaded_at;
   }
   return Object.values(map).sort((a, b) => b.uploaded_at.localeCompare(a.uploaded_at));
+}
+
+/* ===================== 기본 제공 지침 (국가계약법 시행령) =====================
+   2026-07-16 국가법령정보센터/조달청 검색 기반 요약. 법 개정 여지가 있으니
+   실제 적용 전 law.go.kr에서 최신 원문 재확인 권장. 사용자가 "전체 삭제"하면
+   이 기본 지침도 함께 삭제되며, 이후에는 자동으로 다시 채워지지 않는다. */
+const DEFAULT_GUIDELINE_SOURCE = '국가계약법 시행령 (기본 제공)';
+const DEFAULT_GUIDELINE_TEXT = `제26조(수의계약에 의할 수 있는 경우) 추정가격이 2천만원 이하인 물품의 제조ㆍ구매ㆍ임차계약 또는 용역계약은 수의계약에 의할 수 있다. 추정가격이 2천만원을 초과하는 물품의 제조ㆍ구매ㆍ임차계약 또는 용역계약은 원칙적으로 일반경쟁입찰에 의하여야 한다. 다만 추정가격이 2천만원 초과 1억원 이하인 계약으로서 「중소기업기본법」 제2조제2항에 따른 소기업 또는 「소상공인기본법」 제2조에 따른 소상공인과 체결하는 물품의 제조ㆍ구매ㆍ임차계약 또는 용역계약, 학술연구ㆍ원가계산ㆍ건설기술 등과 관련하여 특수한 지식ㆍ기술 또는 자격을 요구하는 계약 등은 예외적으로 수의계약이 가능하다. (근거: 국가를 당사자로 하는 계약에 관한 법률 시행령 제26조)
+
+제33조(입찰공고) 각 중앙관서의 장 또는 계약담당공무원은 경쟁입찰에 부치려는 경우 국가종합전자조달시스템(나라장터, www.g2b.go.kr)을 이용하여 입찰공고를 하여야 한다. 즉 추정가격 2천만원 초과로 수의계약 대상이 아닌 용역ㆍ물품 계약은 나라장터를 통한 경쟁입찰 절차를 거쳐야 한다. (근거: 국가를 당사자로 하는 계약에 관한 법률 시행령 제33조제1항)`;
+
+function seedDefaultGuidelinesIfNeeded() {
+  if (localStorage.getItem(LS_SEEDED_DEFAULTS)) return;
+  const chunks = splitGuidelineSections(DEFAULT_GUIDELINE_TEXT);
+  addGuidelineChunks(DEFAULT_GUIDELINE_SOURCE, chunks);
+  localStorage.setItem(LS_SEEDED_DEFAULTS, '1');
 }
 
 function loadSessions() {
@@ -709,6 +726,7 @@ function promptForKey() {
   renderKeyBox();
 }
 
+seedDefaultGuidelinesIfNeeded();
 renderKeyBox();
 refreshGuidelinesView();
 </script>
