@@ -1,0 +1,541 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>LIPS 협약 사업계획서 검토 도구</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<style>
+  :root {
+    --bg: #f5f6f8; --card: #ffffff; --border: #e2e4e8; --text: #1c1e21;
+    --muted: #6b7280; --accent: #2f6fed;
+    --ok-bg: #e8f5e9; --ok-fg: #1b7a2e;
+    --warn-bg: #fff8e1; --warn-fg: #916800;
+    --bad-bg: #fdecea; --bad-fg: #b3261e;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: -apple-system, "Malgun Gothic", "Apple SD Gothic Neo", sans-serif;
+    background: var(--bg); color: var(--text); }
+  header { background: var(--card); border-bottom: 1px solid var(--border); padding: 16px 24px;
+    display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; flex-wrap: wrap; }
+  header h1 { font-size: 18px; margin: 0; }
+  header p { margin: 4px 0 0; color: var(--muted); font-size: 13px; }
+  nav { display: flex; gap: 4px; padding: 0 24px; background: var(--card); border-bottom: 1px solid var(--border); }
+  nav button { border: none; background: none; padding: 12px 16px; font-size: 14px; cursor: pointer; color: var(--muted);
+    border-bottom: 2px solid transparent; }
+  nav button.active { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
+  main { max-width: 1000px; margin: 24px auto; padding: 0 24px; }
+  .view { display: none; }
+  .view.active { display: block; }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 20px; margin-bottom: 16px; }
+  .card h2 { font-size: 15px; margin: 0 0 12px; }
+  .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  input[type=file], input[type=password], input[type=text] { font-size: 13px; }
+  input[type=password], input[type=text] { padding: 7px 10px; border: 1px solid var(--border); border-radius: 6px; min-width: 260px; }
+  button.primary { background: var(--accent); color: #fff; border: none; border-radius: 6px; padding: 9px 16px;
+    font-size: 13px; cursor: pointer; }
+  button.primary:disabled { opacity: .5; cursor: not-allowed; }
+  button.ghost { background: none; border: 1px solid var(--border); border-radius: 6px; padding: 9px 14px;
+    font-size: 13px; cursor: pointer; color: var(--text); }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; font-size: 12px; }
+  .badge { display: inline-block; padding: 3px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; white-space: nowrap; }
+  .badge.적합 { background: var(--ok-bg); color: var(--ok-fg); }
+  .badge.수정필요 { background: var(--warn-bg); color: var(--warn-fg); }
+  .badge.불가 { background: var(--bad-bg); color: var(--bad-fg); }
+  .badge.확인필요 { background: #ececec; color: #555; }
+  .muted { color: var(--muted); font-size: 12px; }
+  .item-content { max-width: 320px; max-height: 80px; overflow-y: auto; white-space: pre-wrap; font-size: 12px; color: var(--muted); }
+  #spinner, #spinner-g { display: none; margin-left: 8px; font-size: 13px; color: var(--muted); }
+  .empty { color: var(--muted); font-size: 13px; padding: 24px; text-align: center; }
+  .summary { display: flex; gap: 16px; margin-bottom: 12px; font-size: 13px; }
+  .summary b { font-size: 16px; }
+  .link-btn { background: none; border: none; color: var(--accent); cursor: pointer; padding: 0; font-size: 13px; text-decoration: underline; }
+  .warn-box { background: var(--warn-bg); color: var(--warn-fg); border-radius: 8px; padding: 10px 14px; font-size: 13px; margin-bottom: 12px; }
+  .key-box { display: flex; gap: 6px; align-items: center; font-size: 12px; color: var(--muted); }
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>LIPS 협약 사업계획서 검토 도구</h1>
+    <p>중기부 운영지침을 학습시키고, 사업계획서를 올리면 수정사항/불가 항목을 1차로 걸러줍니다. (참고용 1차 검토이며 최종 판단은 담당자가 합니다)</p>
+    <p class="muted">모든 처리는 이 브라우저 안에서만 이뤄지고, 데이터는 이 컴퓨터의 브라우저(localStorage)에만 저장됩니다. 서버로 전송되지 않습니다 (Groq API 호출 제외).</p>
+  </div>
+  <div class="key-box" id="key-box"></div>
+</header>
+
+<nav>
+  <button class="tab active" data-view="review">사업계획서 검토</button>
+  <button class="tab" data-view="guidelines">지침 관리</button>
+  <button class="tab" data-view="history">검토 이력</button>
+</nav>
+
+<main>
+
+  <div id="view-review" class="view active">
+    <div class="card">
+      <h2>사업계획서 업로드</h2>
+      <div class="row">
+        <input type="file" id="plan-file" accept=".pdf,.hwpx" />
+        <button class="primary" id="btn-review">검토 시작</button>
+        <span id="spinner">⏳ 검토 중... (항목이 많으면 1~2분 걸릴 수 있어요)</span>
+      </div>
+      <p class="muted" id="review-hint"></p>
+      <p class="muted">⚠️ 구버전 .hwp 파일은 브라우저에서 직접 열 수 없습니다. 한글 프로그램에서 <b>"다른 이름으로 저장 → PDF"</b> 또는 "HWPX"로 저장한 뒤 업로드해주세요.</p>
+    </div>
+    <div id="review-result"></div>
+  </div>
+
+  <div id="view-guidelines" class="view">
+    <div class="card">
+      <h2>지침 문서 업로드</h2>
+      <div class="row">
+        <input type="file" id="guideline-file" accept=".pdf,.hwpx" />
+        <button class="primary" id="btn-upload-guideline">업로드 및 학습</button>
+        <span id="spinner-g">⏳ 처리 중...</span>
+      </div>
+      <p class="muted">사업비 관리지침, 운영지침 등 여러 문서를 순서대로 업로드할 수 있습니다 (누적됩니다). 구버전 .hwp는 PDF/HWPX로 변환 후 업로드하세요.</p>
+    </div>
+    <div class="card">
+      <div class="row" style="justify-content: space-between;">
+        <h2 style="margin:0">학습된 지침 목록</h2>
+        <button class="ghost" id="btn-clear-guidelines">전체 삭제</button>
+      </div>
+      <div id="guideline-list"></div>
+    </div>
+  </div>
+
+  <div id="view-history" class="view">
+    <div class="card">
+      <h2>검토 이력</h2>
+      <div id="history-list"></div>
+    </div>
+    <div id="history-detail"></div>
+  </div>
+
+</main>
+
+<script>
+/* ===================== 공통 유틸 ===================== */
+const $ = (sel) => document.querySelector(sel);
+
+function escapeHtml(s) {
+  return (s || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+function decodeEntities(str) {
+  const el = document.createElement('textarea');
+  el.innerHTML = str;
+  return el.value;
+}
+
+pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+/* ===================== 문서 추출 (PDF / HWPX) ===================== */
+async function extractPdfText(file) {
+  const buf = await file.arrayBuffer();
+  const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
+  let text = '';
+  for (let i = 1; i <= pdf.numPages; i++) {
+    const page = await pdf.getPage(i);
+    const content = await page.getTextContent();
+    text += content.items.map(it => it.str).join(' ') + '\n';
+  }
+  return text;
+}
+
+async function extractHwpxText(file) {
+  const buf = await file.arrayBuffer();
+  const zip = await JSZip.loadAsync(buf);
+  const sectionNames = Object.keys(zip.files)
+    .filter(n => /^Contents\/section\d+\.xml$/.test(n))
+    .sort();
+  if (!sectionNames.length) throw new Error('HWPX에서 본문 섹션을 찾을 수 없습니다.');
+  const parts = [];
+  for (const name of sectionNames) {
+    const xml = await zip.files[name].async('text');
+    const matches = xml.matchAll(/<hp:t[^>]*>([\s\S]*?)<\/hp:t>/g);
+    for (const m of matches) {
+      let clean = m[1].replace(/<[^>]+>/g, '');
+      clean = decodeEntities(clean).trim();
+      if (clean) parts.push(clean);
+    }
+  }
+  return parts.join('\n');
+}
+
+async function extractText(file) {
+  const ext = file.name.toLowerCase().slice(file.name.lastIndexOf('.'));
+  if (ext === '.pdf') return extractPdfText(file);
+  if (ext === '.hwpx') return extractHwpxText(file);
+  if (ext === '.hwp') {
+    throw new Error('구버전 .hwp 파일은 지원하지 않습니다. 한글에서 "다른 이름으로 저장 → PDF"로 변환 후 업로드해주세요.');
+  }
+  throw new Error('지원하지 않는 파일 형식입니다 (pdf/hwpx만 지원)');
+}
+
+/* ===================== 조항/항목 분할 ===================== */
+const CHUNK_SIZE = 900;
+const CHUNK_OVERLAP = 150;
+const MAX_SECTION_CHARS = 2500;
+const MAX_ITEM_CHARS = 3500;
+
+function firstLine(text, maxLen = 40) {
+  const lines = text.trim().split('\n').map(l => l.trim()).filter(Boolean);
+  let labelParts = [];
+  let totalLen = 0;
+  for (const line of lines) {
+    const stripped = line.replace(/[□○·\-\s]+/g, '');
+    if (stripped || labelParts.length) {
+      labelParts.push(line);
+      totalLen += line.length;
+    }
+    if (totalLen >= 4 && stripped) break;
+    if (labelParts.length >= 3) break;
+  }
+  const label = labelParts.length ? labelParts.join(' ') : (lines[0] || '');
+  return label.slice(0, maxLen);
+}
+
+function slidingChunks(text) {
+  text = text.trim();
+  if (!text) return [];
+  const chunks = [];
+  const step = CHUNK_SIZE - CHUNK_OVERLAP;
+  for (let start = 0; start < text.length; start += step) {
+    const chunk = text.slice(start, start + CHUNK_SIZE).trim();
+    if (chunk) chunks.push([firstLine(chunk, 60), chunk]);
+    if (start + CHUNK_SIZE >= text.length) break;
+  }
+  return chunks;
+}
+
+function capLargeSections(items) {
+  const result = [];
+  for (const [label, content] of items) {
+    if (content.length <= MAX_SECTION_CHARS) { result.push([label, content]); continue; }
+    const sub = slidingChunks(content);
+    sub.forEach((s, i) => result.push([`${label} (${i + 1}/${sub.length})`, s[1]]));
+  }
+  return result;
+}
+
+function splitGuidelineSections(text) {
+  // 실제 조항 헤더("제3조(정의)")만 경계로 인식. 본문 중 인용("민법 제777조의")은 걸러짐.
+  const parts = text.split(/(?=제\s*\d+\s*조\s*\()/).map(p => p.trim()).filter(Boolean);
+  if (parts.length >= 3) return capLargeSections(parts.map(p => [firstLine(p, 60), p]));
+  return slidingChunks(text);
+}
+
+function splitPlanSections(text) {
+  const parts = text.split(/(?=^\s*□)/m).map(p => p.trim()).filter(Boolean);
+  if (parts.length >= 2) return capLargeSections(parts.map(p => [firstLine(p, 60), p]));
+  return slidingChunks(text);
+}
+
+function expandLargeItems(items) {
+  const result = [];
+  for (const [label, content] of items) {
+    if (content.length <= MAX_ITEM_CHARS) { result.push([label, content]); continue; }
+    const sub = slidingChunks(content);
+    sub.forEach((s, i) => result.push([`${label} (${i + 1}/${sub.length})`, s[1]]));
+  }
+  return result;
+}
+
+/* ===================== 관련도 검색 (bigram 자카드, 임베딩 없음) ===================== */
+function bigrams(text) {
+  const t = text.replace(/\s+/g, '').toLowerCase();
+  const set = new Set();
+  for (let i = 0; i < t.length - 1; i++) set.add(t.slice(i, i + 2));
+  if (!set.size && t) set.add(t);
+  return set;
+}
+
+function relevanceScore(query, content) {
+  const a = bigrams(query), b = bigrams(content);
+  if (!a.size || !b.size) return 0;
+  let inter = 0;
+  for (const x of a) if (b.has(x)) inter++;
+  const union = a.size + b.size - inter;
+  return union ? inter / union : 0;
+}
+
+function findRelevantGuidelines(query, topK = 5) {
+  const guidelines = loadGuidelines();
+  return guidelines
+    .map(g => [relevanceScore(query, g.content), g])
+    .sort((x, y) => y[0] - x[0])
+    .filter(x => x[0] > 0)
+    .slice(0, topK)
+    .map(x => x[1]);
+}
+
+/* ===================== localStorage 저장소 ===================== */
+const LS_GUIDELINES = 'lips_guidelines_v1';
+const LS_SESSIONS = 'lips_sessions_v1';
+const LS_GROQ_KEY = 'lips_groq_api_key';
+
+function loadGuidelines() {
+  try { return JSON.parse(localStorage.getItem(LS_GUIDELINES) || '[]'); } catch { return []; }
+}
+function saveGuidelines(list) { localStorage.setItem(LS_GUIDELINES, JSON.stringify(list)); }
+function addGuidelineChunks(sourceFile, chunks) {
+  const list = loadGuidelines();
+  const uploadedAt = new Date().toISOString();
+  for (const [label, content] of chunks) list.push({ source_file: sourceFile, label, content, uploaded_at: uploadedAt });
+  saveGuidelines(list);
+}
+function clearGuidelines() { saveGuidelines([]); }
+function listGuidelineSources() {
+  const list = loadGuidelines();
+  const map = {};
+  for (const g of list) {
+    if (!map[g.source_file]) map[g.source_file] = { source_file: g.source_file, n: 0, uploaded_at: g.uploaded_at };
+    map[g.source_file].n++;
+    if (g.uploaded_at > map[g.source_file].uploaded_at) map[g.source_file].uploaded_at = g.uploaded_at;
+  }
+  return Object.values(map).sort((a, b) => b.uploaded_at.localeCompare(a.uploaded_at));
+}
+
+function loadSessions() {
+  try { return JSON.parse(localStorage.getItem(LS_SESSIONS) || '[]'); } catch { return []; }
+}
+function saveSession(filename, items) {
+  const sessions = loadSessions();
+  const session = { id: Date.now(), filename, created_at: new Date().toISOString(), items };
+  sessions.unshift(session);
+  localStorage.setItem(LS_SESSIONS, JSON.stringify(sessions.slice(0, 50)));
+  return session;
+}
+
+/* ===================== Groq LLM 호출 ===================== */
+const REVIEW_MODEL = 'llama-3.3-70b-versatile';
+
+const SYSTEM_PROMPT = `당신은 중소벤처기업부 LIPS(혁신 소상공인 투자연계지원) 사업의 주관기관 협약 담당자입니다.
+아래 제공되는 [운영지침 근거 조항]을 근거로 [사업계획서 항목] 내용이 지침에 부합하는지 검토합니다.
+
+반드시 아래 JSON 형식으로만 응답하세요. 다른 텍스트는 출력하지 마세요.
+{
+  "verdict": "적합" 또는 "수정필요" 또는 "불가",
+  "reason": "판정 이유를 한국어로 구체적으로 서술",
+  "guideline_ref": "근거로 삼은 지침 조항 라벨 (해당 없으면 빈 문자열)",
+  "suggestion": "수정필요/불가인 경우 구체적인 수정 방향 제안 (적합인 경우 빈 문자열)"
+}
+
+판정 기준:
+- "적합": 제공된 지침 조항과 명백히 배치되지 않음
+- "수정필요": 지침에 부합하려면 문구/금액/항목 등을 조정해야 함
+- "불가": 지침상 명백히 허용되지 않는 항목이거나 금지 규정에 해당
+- 관련 지침 조항이 제공되지 않았다면 판단 근거 부족을 reason에 명시하고 verdict는 "적합"으로 처리 (근거 없이 불가 판정 금지)`;
+
+function getGroqKey() { return localStorage.getItem(LS_GROQ_KEY) || ''; }
+
+async function callGroq(userPrompt) {
+  const apiKey = getGroqKey();
+  if (!apiKey) throw new Error('Groq API 키가 설정되지 않았습니다. 우측 상단에서 키를 입력해주세요.');
+  const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + apiKey },
+    body: JSON.stringify({
+      model: REVIEW_MODEL,
+      temperature: 0,
+      response_format: { type: 'json_object' },
+      messages: [
+        { role: 'system', content: SYSTEM_PROMPT },
+        { role: 'user', content: userPrompt },
+      ],
+    }),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error?.message || 'Groq API 오류');
+  return JSON.parse(data.choices[0].message.content);
+}
+
+async function reviewBusinessPlan(planText) {
+  if (!loadGuidelines().length) {
+    throw new Error('업로드된 지침이 없습니다. 먼저 "지침 관리" 탭에서 지침 문서를 업로드해 학습시켜 주세요.');
+  }
+  const rawItems = splitPlanSections(planText);
+  const items = expandLargeItems(rawItems);
+  const results = [];
+  for (const [label, content] of items) {
+    const relevant = findRelevantGuidelines(content, 5);
+    const guidelineBlock = relevant.length
+      ? relevant.map(g => `[${g.label}]\n${g.content.slice(0, 1500)}`).join('\n\n')
+      : '(관련 지침 조항을 찾지 못했습니다)';
+    const userPrompt = `[운영지침 근거 조항]\n${guidelineBlock}\n\n[사업계획서 항목: ${label}]\n${content}\n`;
+    let parsed;
+    try {
+      parsed = await callGroq(userPrompt);
+    } catch (e) {
+      parsed = { verdict: '확인필요', reason: `자동 판정 중 오류 발생: ${e.message}`, guideline_ref: '', suggestion: '' };
+    }
+    results.push({
+      item_label: label,
+      item_content: content,
+      verdict: parsed.verdict || '확인필요',
+      reason: parsed.reason || '',
+      guideline_ref: parsed.guideline_ref || '',
+      suggestion: parsed.suggestion || '',
+    });
+  }
+  return results;
+}
+
+/* ===================== UI ===================== */
+document.querySelectorAll('nav .tab').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('nav .tab').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+    btn.classList.add('active');
+    $('#view-' + btn.dataset.view).classList.add('active');
+    if (btn.dataset.view === 'guidelines') refreshGuidelinesView();
+    if (btn.dataset.view === 'history') refreshHistoryView();
+  });
+});
+
+function renderResultTable(items) {
+  const counts = { 적합: 0, 수정필요: 0, 불가: 0, 확인필요: 0 };
+  items.forEach(it => counts[it.verdict] = (counts[it.verdict] || 0) + 1);
+
+  let html = `<div class="card">
+    <div class="summary">
+      <span>적합 <b>${counts['적합'] || 0}</b></span>
+      <span>수정필요 <b>${counts['수정필요'] || 0}</b></span>
+      <span>불가 <b>${counts['불가'] || 0}</b></span>
+      ${counts['확인필요'] ? `<span>확인필요 <b>${counts['확인필요']}</b></span>` : ''}
+    </div>
+    <table>
+      <thead><tr><th>항목</th><th>판정</th><th>사유</th><th>근거 지침</th><th>수정 제안</th></tr></thead>
+      <tbody>`;
+  for (const it of items) {
+    html += `<tr>
+      <td><b>${escapeHtml(it.item_label)}</b><div class="item-content">${escapeHtml(it.item_content).slice(0, 300)}</div></td>
+      <td><span class="badge ${it.verdict}">${escapeHtml(it.verdict)}</span></td>
+      <td>${escapeHtml(it.reason)}</td>
+      <td class="muted">${escapeHtml(it.guideline_ref)}</td>
+      <td>${escapeHtml(it.suggestion)}</td>
+    </tr>`;
+  }
+  html += `</tbody></table></div>`;
+  return html;
+}
+
+$('#btn-review').addEventListener('click', async () => {
+  const fileInput = $('#plan-file');
+  if (!fileInput.files.length) { alert('사업계획서 파일을 선택하세요.'); return; }
+  const btn = $('#btn-review');
+  btn.disabled = true;
+  $('#spinner').style.display = 'inline';
+  $('#review-result').innerHTML = '';
+  try {
+    const file = fileInput.files[0];
+    const text = await extractText(file);
+    if (!text.trim()) throw new Error('문서에서 텍스트를 추출하지 못했습니다.');
+    const items = await reviewBusinessPlan(text);
+    saveSession(file.name, items);
+    $('#review-result').innerHTML = renderResultTable(items);
+  } catch (e) {
+    $('#review-result').innerHTML = `<div class="card" style="color:#b3261e">오류: ${escapeHtml(e.message)}</div>`;
+  } finally {
+    btn.disabled = false;
+    $('#spinner').style.display = 'none';
+  }
+});
+
+$('#btn-upload-guideline').addEventListener('click', async () => {
+  const fileInput = $('#guideline-file');
+  if (!fileInput.files.length) { alert('지침 파일을 선택하세요.'); return; }
+  const btn = $('#btn-upload-guideline');
+  btn.disabled = true;
+  $('#spinner-g').style.display = 'inline';
+  try {
+    const file = fileInput.files[0];
+    const text = await extractText(file);
+    const chunks = splitGuidelineSections(text);
+    if (!chunks.length) throw new Error('문서에서 텍스트를 추출하지 못했습니다.');
+    addGuidelineChunks(file.name, chunks);
+    fileInput.value = '';
+    refreshGuidelinesView();
+  } catch (e) {
+    alert('오류: ' + e.message);
+  } finally {
+    btn.disabled = false;
+    $('#spinner-g').style.display = 'none';
+  }
+});
+
+$('#btn-clear-guidelines').addEventListener('click', () => {
+  if (!confirm('학습된 지침을 전부 삭제할까요?')) return;
+  clearGuidelines();
+  refreshGuidelinesView();
+});
+
+function refreshGuidelinesView() {
+  const guidelines = loadGuidelines();
+  const sources = listGuidelineSources();
+  $('#review-hint').textContent = guidelines.length
+    ? `현재 학습된 지침 조항 ${guidelines.length}개 (${sources.length}개 문서)`
+    : '⚠️ 아직 학습된 지침이 없습니다. "지침 관리" 탭에서 먼저 업로드하세요.';
+  const list = $('#guideline-list');
+  if (!sources.length) {
+    list.innerHTML = '<div class="empty">아직 업로드된 지침이 없습니다.</div>';
+    return;
+  }
+  list.innerHTML = `<table><thead><tr><th>파일명</th><th>조항 수</th><th>업로드 시각</th></tr></thead><tbody>` +
+    sources.map(s => `<tr><td>${escapeHtml(s.source_file)}</td><td>${s.n}</td><td class="muted">${escapeHtml(new Date(s.uploaded_at).toLocaleString())}</td></tr>`).join('') +
+    `</tbody></table>`;
+}
+
+function refreshHistoryView() {
+  const sessions = loadSessions();
+  const list = $('#history-list');
+  $('#history-detail').innerHTML = '';
+  if (!sessions.length) {
+    list.innerHTML = '<div class="empty">검토 이력이 없습니다.</div>';
+    return;
+  }
+  list.innerHTML = `<table><thead><tr><th>파일명</th><th>검토 시각</th><th></th></tr></thead><tbody>` +
+    sessions.map(s => `<tr><td>${escapeHtml(s.filename)}</td><td class="muted">${escapeHtml(new Date(s.created_at).toLocaleString())}</td>
+      <td><button class="link-btn" data-session="${s.id}">결과 보기</button></td></tr>`).join('') +
+    `</tbody></table>`;
+  list.querySelectorAll('[data-session]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const session = sessions.find(s => s.id === Number(btn.dataset.session));
+      $('#history-detail').innerHTML = renderResultTable(session.items);
+    });
+  });
+}
+
+/* ===================== Groq API 키 설정 ===================== */
+function renderKeyBox() {
+  const key = getGroqKey();
+  const box = $('#key-box');
+  if (key) {
+    box.innerHTML = `<span>Groq API 키 설정됨 ✓</span> <button class="link-btn" id="btn-change-key">변경</button>`;
+    $('#btn-change-key').addEventListener('click', promptForKey);
+  } else {
+    box.innerHTML = `<button class="primary" id="btn-set-key">Groq API 키 설정</button>`;
+    $('#btn-set-key').addEventListener('click', promptForKey);
+  }
+}
+function promptForKey() {
+  const current = getGroqKey();
+  const val = prompt('Groq API 키를 입력하세요 (https://console.groq.com 에서 무료 발급, 이 브라우저에만 저장됩니다):', current || '');
+  if (val === null) return;
+  if (val.trim()) localStorage.setItem(LS_GROQ_KEY, val.trim());
+  else localStorage.removeItem(LS_GROQ_KEY);
+  renderKeyBox();
+}
+
+renderKeyBox();
+refreshGuidelinesView();
+</script>
+
+</body>
+</html>
