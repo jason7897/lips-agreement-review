@@ -1,0 +1,9 @@
+venv/
+__pycache__/
+*.pyc
+.env
+review.db
+*.log
+test_out.txt
+test_html_out/
+help_out.txt
