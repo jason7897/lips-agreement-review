@@ -171,6 +171,20 @@
   header .key-box .link-btn:hover { color: var(--hero-text-soft); }
 
   footer.app-footer { max-width: 1040px; margin: 0 auto 40px; padding: 0 28px; color: var(--muted-2); font-size: 11.5px; text-align: center; }
+
+  .result-toolbar { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
+  .result-meta { font-size: 12.5px; color: var(--muted); }
+  details.guideline-refs summary { cursor: pointer; }
+  details.guideline-refs { margin-top: 16px; }
+  .guideline-ref-card { border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 12px 14px; }
+  .guideline-ref-card .g-label { font-weight: 700; font-size: 12.5px; margin-bottom: 4px; }
+  .guideline-ref-card .g-content { white-space: pre-wrap; font-size: 12px; color: var(--muted); }
+
+  @media print {
+    header, nav, footer.app-footer, .no-print { display: none !important; }
+    body, main { background: #fff !important; margin: 0; padding: 0; max-width: 100%; }
+    .card { box-shadow: none; border: 1px solid #ccc; break-inside: avoid; }
+  }
 </style>
 </head>
 <body>
@@ -203,15 +217,18 @@
 <main>
 
   <div id="view-review" class="view active">
-    <div class="card">
+    <div class="card no-print">
       <h2><span class="h2-icon blue">📝</span> 사업계획서 업로드</h2>
       <div class="dropzone">
         <span class="dz-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
           stroke-linecap="round" stroke-linejoin="round"><path d="M7 3h7l4 4v14a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z"/>
           <path d="M14 3v4h4"/><path d="M9 12h6M9 16h6"/></svg></span>
-        <div class="dz-file"><div class="dz-hint">파일을 여기로 끌어다 놓거나 선택하세요</div><input type="file" id="plan-file" accept=".pdf,.hwpx" /></div>
+        <div class="dz-file"><div class="dz-hint">파일을 여기로 끌어다 놓거나 선택하세요 (여러 개 선택 시 순서대로 일괄 검토)</div><input type="file" id="plan-file" accept=".pdf,.hwpx" multiple /></div>
         <button class="primary" id="btn-review">검토 시작</button>
-        <span class="spinner-inline" id="spinner"><span class="spin-ring"></span>검토 중... (항목이 많으면 1~2분 걸릴 수 있어요)</span>
+        <span class="spinner-inline" id="spinner"><span class="spin-ring"></span><span id="spinner-text">검토 중... (항목이 많으면 1~2분 걸릴 수 있어요)</span></span>
+      </div>
+      <div class="row" style="margin-top:12px">
+        <input type="text" id="reviewer-name" placeholder="검토자 이름 (선택 입력, 이력에 표시됩니다)" />
       </div>
       <p class="muted" id="review-hint" style="margin-top:12px"></p>
       <p class="muted">📎 문서 전체가 아니라 <b>"□ 사업비 구성 및 집행계획"</b> 표(보통 문서 하단)만 자동으로 찾아서, 표 안의 집행내용(비목)별 금액이 지침에 부합하는지 검토합니다.</p>
@@ -221,7 +238,7 @@
   </div>
 
   <div id="view-guidelines" class="view">
-    <div class="card">
+    <div class="card no-print">
       <h2><span class="h2-icon purple">📚</span> 지침 문서 업로드</h2>
       <div class="dropzone">
         <span class="dz-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
@@ -233,7 +250,7 @@
       </div>
       <p class="muted" style="margin-top:12px">사업비 관리지침, 운영지침 등 여러 문서를 순서대로 업로드할 수 있습니다 (누적됩니다). 구버전 .hwp는 PDF/HWPX로 변환 후 업로드하세요.</p>
     </div>
-    <div class="card">
+    <div class="card no-print">
       <h2><span class="h2-icon teal">✏️</span> 텍스트로 직접 학습</h2>
       <p class="muted" style="margin:0 0 10px">파일이 없어도, 조항 내용을 아래에 직접 붙여넣어 학습시킬 수 있습니다 (이메일/공문 본문, 캡처 후 복사한 텍스트 등).</p>
       <div class="row" style="margin-bottom:8px">
@@ -546,8 +563,11 @@ async function migrateLegacyLocalGuidelinesIfNeeded() {
 }
 
 async function loadSessions() { return apiGet('list_sessions'); }
-async function saveSession(filename, items) {
-  return apiPost('save_session', { filename, items });
+async function saveSession(filename, items, usedGuidelines, reviewer) {
+  return apiPost('save_session', { filename, items, usedGuidelines, reviewer });
+}
+async function deleteGuidelineSource(sourceFile) {
+  return apiPost('delete_guideline_source', { source_file: sourceFile });
 }
 
 /* ===================== Groq LLM 호출 ===================== */
@@ -665,14 +685,17 @@ async function reviewBusinessPlan(planText) {
   if (!items.length) {
     throw new Error('사업비 항목을 판정하지 못했습니다. 문서 추출 상태를 확인해주세요.');
   }
-  return items.map(it => ({
-    item_label: it.item_label || '(항목명 미상)',
-    item_content: it.amount_summary || '',
-    verdict: it.verdict || '확인필요',
-    reason: it.reason || '',
-    guideline_ref: it.guideline_ref || '',
-    suggestion: it.suggestion || '',
-  }));
+  return {
+    items: items.map(it => ({
+      item_label: it.item_label || '(항목명 미상)',
+      item_content: it.amount_summary || '',
+      verdict: it.verdict || '확인필요',
+      reason: it.reason || '',
+      guideline_ref: it.guideline_ref || '',
+      suggestion: it.suggestion || '',
+    })),
+    usedGuidelines: relevant.map(g => ({ label: g.label, content: g.content })),
+  };
 }
 
 /* ===================== 드래그 앤 드롭 업로드 ===================== */
@@ -721,11 +744,60 @@ function verdictBadge(verdict) {
   return `<span class="badge ${verdict}">${VERDICT_ICONS[verdict] || ''}${escapeHtml(verdict)}</span>`;
 }
 
-function renderResultTable(items) {
+/* ===================== 결과 내보내기 (엑셀 CSV / 인쇄-PDF) ===================== */
+let RENDER_SEQ = 0;
+const renderRegistry = {};
+
+function itemsToCsv(items) {
+  const headers = ['항목', '판정', '사유', '근거 지침', '수정 제안'];
+  const rows = items.map(it => [it.item_label, it.verdict, it.reason, it.guideline_ref, it.suggestion]);
+  const esc = v => `"${String(v == null ? '' : v).replace(/"/g, '""')}"`;
+  return '﻿' + [headers, ...rows].map(r => r.map(esc).join(',')).join('\r\n');
+}
+
+function downloadCsv(items, filenameBase) {
+  const blob = new Blob([itemsToCsv(items)], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `${filenameBase || '검토결과'}_검토결과.csv`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+document.addEventListener('click', (e) => {
+  const csvBtn = e.target.closest('.btn-export-csv');
+  if (csvBtn) {
+    const entry = renderRegistry[csvBtn.dataset.renderId];
+    if (entry) downloadCsv(entry.items, (entry.filename || '검토결과').replace(/\.[^.]+$/, ''));
+    return;
+  }
+  if (e.target.closest('.btn-print')) { window.print(); return; }
+});
+
+function renderResultTable(items, opts) {
+  opts = opts || {};
+  const usedGuidelines = opts.usedGuidelines || [];
+  const meta = opts.meta || {};
+  const renderId = 'r' + (++RENDER_SEQ);
+  renderRegistry[renderId] = { items, filename: meta.filename };
+
   const counts = { 적합: 0, 수정필요: 0, 불가: 0, 확인필요: 0 };
   items.forEach(it => counts[it.verdict] = (counts[it.verdict] || 0) + 1);
 
+  const metaLine = [meta.filename, meta.reviewer ? `검토자: ${meta.reviewer}` : '', meta.created_at ? new Date(meta.created_at).toLocaleString() : '']
+    .filter(Boolean).map(escapeHtml).join(' · ');
+
   let html = `<div class="card">
+    <div class="result-toolbar">
+      <div class="result-meta">${metaLine}</div>
+      <div class="row no-print">
+        <button class="ghost btn-export-csv" data-render-id="${renderId}">⬇ 엑셀로 내보내기</button>
+        <button class="ghost btn-print" data-render-id="${renderId}">🖨 인쇄 / PDF 저장</button>
+      </div>
+    </div>
     <div class="summary">
       <div class="stat ok"><span class="stat-label">${VERDICT_ICONS['적합']}적합</span><b>${counts['적합'] || 0}</b></div>
       <div class="stat warn"><span class="stat-label">${VERDICT_ICONS['수정필요']}수정필요</span><b>${counts['수정필요'] || 0}</b></div>
@@ -744,30 +816,58 @@ function renderResultTable(items) {
       <td>${escapeHtml(it.suggestion)}</td>
     </tr>`;
   }
-  html += `</tbody></table></div></div>`;
+  html += `</tbody></table></div>`;
+  if (usedGuidelines.length) {
+    html += `<details class="guideline-refs">
+      <summary class="link-btn">📖 이 검토에 사용된 지침 원문 보기 (${usedGuidelines.length}개)</summary>
+      <div class="row" style="flex-direction:column; align-items:stretch; gap:10px; margin-top:10px">
+        ${usedGuidelines.map(g => `<div class="guideline-ref-card">
+          <div class="g-label">${escapeHtml(g.label)}</div>
+          <div class="g-content">${escapeHtml(g.content)}</div>
+        </div>`).join('')}
+      </div>
+    </details>`;
+  }
+  html += `</div>`;
   return html;
 }
 
 $('#btn-review').addEventListener('click', async () => {
   const fileInput = $('#plan-file');
   if (!fileInput.files.length) { alert('사업계획서 파일을 선택하세요.'); return; }
+  const files = Array.from(fileInput.files);
+  const reviewer = getReviewerName();
   const btn = $('#btn-review');
   btn.disabled = true;
   $('#spinner').classList.add('show');
   $('#review-result').innerHTML = '';
-  try {
-    const file = fileInput.files[0];
-    const text = await extractText(file);
-    if (!text.trim()) throw new Error('문서에서 텍스트를 추출하지 못했습니다.');
-    const items = await reviewBusinessPlan(text);
-    await saveSession(file.name, items);
-    $('#review-result').innerHTML = renderResultTable(items);
-  } catch (e) {
-    $('#review-result').innerHTML = `<div class="card err-box">오류: ${escapeHtml(e.message)}</div>`;
-  } finally {
-    btn.disabled = false;
-    $('#spinner').classList.remove('show');
+
+  for (let i = 0; i < files.length; i++) {
+    const file = files[i];
+    $('#spinner-text').textContent = files.length > 1
+      ? `검토 중... (${i + 1}/${files.length}) ${file.name}`
+      : '검토 중... (항목이 많으면 1~2분 걸릴 수 있어요)';
+    const card = document.createElement('div');
+    card.innerHTML = `<div class="card muted">⏳ ${escapeHtml(file.name)} 처리 중...</div>`;
+    $('#review-result').appendChild(card);
+    try {
+      const text = await extractText(file);
+      if (!text.trim()) throw new Error('문서에서 텍스트를 추출하지 못했습니다.');
+      const { items, usedGuidelines } = await reviewBusinessPlan(text);
+      const createdAt = new Date().toISOString();
+      card.innerHTML = renderResultTable(items, { usedGuidelines, meta: { filename: file.name, reviewer, created_at: createdAt } });
+      try {
+        await saveSession(file.name, items, usedGuidelines, reviewer);
+      } catch (e) {
+        card.insertAdjacentHTML('afterbegin', `<div class="card warn-box no-print">⚠️ 검토 결과는 정상이지만 이력 저장에 실패했습니다: ${escapeHtml(e.message)}</div>`);
+      }
+    } catch (e) {
+      card.innerHTML = `<div class="card err-box">${escapeHtml(file.name)} 처리 중 오류: ${escapeHtml(e.message)}</div>`;
+    }
   }
+
+  btn.disabled = false;
+  $('#spinner').classList.remove('show');
 });
 
 $('#btn-upload-guideline').addEventListener('click', async () => {
@@ -848,9 +948,22 @@ async function refreshGuidelinesView() {
       </svg>아직 업로드된 지침이 없습니다.</div>`;
     return;
   }
-  list.innerHTML = `<div class="table-wrap"><table><thead><tr><th>출처</th><th>조항 수</th><th>업로드 시각</th></tr></thead><tbody>` +
-    sources.map(s => `<tr><td>${escapeHtml(s.source_file)}</td><td>${s.n}</td><td class="muted">${escapeHtml(new Date(s.uploaded_at).toLocaleString())}</td></tr>`).join('') +
+  list.innerHTML = `<div class="table-wrap"><table><thead><tr><th>출처</th><th>조항 수</th><th>업로드 시각</th><th></th></tr></thead><tbody>` +
+    sources.map(s => `<tr><td>${escapeHtml(s.source_file)}</td><td>${s.n}</td><td class="muted">${escapeHtml(new Date(s.uploaded_at).toLocaleString())}</td>
+      <td><button class="link-btn btn-delete-source" data-source="${escapeHtml(s.source_file)}">삭제</button></td></tr>`).join('') +
     `</tbody></table></div>`;
+  list.querySelectorAll('.btn-delete-source').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const source = btn.dataset.source;
+      if (!confirm(`"${source}" 지침을 삭제할까요? (이 문서의 조항만 지워지고 다른 지침은 남습니다)`)) return;
+      try {
+        await deleteGuidelineSource(source);
+        await refreshGuidelinesView();
+      } catch (e) {
+        alert('오류: ' + e.message);
+      }
+    });
+  });
 }
 
 async function refreshHistoryView() {
@@ -871,14 +984,17 @@ async function refreshHistoryView() {
       </svg>검토 이력이 없습니다.</div>`;
     return;
   }
-  list.innerHTML = `<div class="table-wrap"><table><thead><tr><th>파일명</th><th>검토 시각</th><th></th></tr></thead><tbody>` +
-    sessions.map(s => `<tr><td>${escapeHtml(s.filename)}</td><td class="muted">${escapeHtml(new Date(s.created_at).toLocaleString())}</td>
+  list.innerHTML = `<div class="table-wrap"><table><thead><tr><th>파일명</th><th>검토자</th><th>검토 시각</th><th></th></tr></thead><tbody>` +
+    sessions.map(s => `<tr><td>${escapeHtml(s.filename)}</td><td class="muted">${escapeHtml(s.reviewer || '-')}</td><td class="muted">${escapeHtml(new Date(s.created_at).toLocaleString())}</td>
       <td><button class="link-btn" data-session="${s.id}">결과 보기</button></td></tr>`).join('') +
     `</tbody></table></div>`;
   list.querySelectorAll('[data-session]').forEach(btn => {
     btn.addEventListener('click', () => {
       const session = sessions.find(s => s.id === btn.dataset.session);
-      $('#history-detail').innerHTML = renderResultTable(session.items);
+      $('#history-detail').innerHTML = renderResultTable(session.items, {
+        usedGuidelines: session.usedGuidelines,
+        meta: { filename: session.filename, reviewer: session.reviewer, created_at: session.created_at },
+      });
     });
   });
 }
@@ -903,6 +1019,12 @@ function promptForKey() {
   else localStorage.removeItem(LS_GROQ_KEY);
   renderKeyBox();
 }
+
+/* ===================== 검토자 이름 (이 브라우저에 기억) ===================== */
+const LS_REVIEWER_NAME = 'lips_reviewer_name';
+function getReviewerName() { return $('#reviewer-name').value.trim(); }
+$('#reviewer-name').value = localStorage.getItem(LS_REVIEWER_NAME) || '';
+$('#reviewer-name').addEventListener('change', () => localStorage.setItem(LS_REVIEWER_NAME, getReviewerName()));
 
 (async () => {
   renderKeyBox();

@@ -21,7 +21,7 @@
  */
 
 const GUIDELINES_HEADERS = ['id', 'source_file', 'label', 'content', 'uploaded_at'];
-const SESSIONS_HEADERS = ['id', 'filename', 'created_at', 'items_json'];
+const SESSIONS_HEADERS = ['id', 'filename', 'created_at', 'items_json', 'reviewer'];
 
 // 'Sessions'/'Guidelines' 탭을 실수로 수동 편집/삭제해도 데이터를 복구할 수 있도록,
 // 저장할 때마다 별도의 보관용(Archive) 탭에도 같은 행을 추가로 남긴다. 이 탭은 화면 어디서도
@@ -35,6 +35,13 @@ function getSheet_(name, headers) {
   if (!sh) {
     sh = ss.insertSheet(name);
     sh.appendRow(headers);
+    return sh;
+  }
+  // 이미 있는 탭에 헤더 컬럼이 나중에 추가된 경우(예: reviewer), 기존 데이터는 그대로 두고
+  // 헤더 행에 빠진 컬럼명만 채워 넣는다.
+  const existing = sh.getRange(1, 1, 1, Math.max(sh.getLastColumn(), 1)).getValues()[0];
+  if (existing.length < headers.length) {
+    sh.getRange(1, existing.length + 1, 1, headers.length - existing.length).setValues([headers.slice(existing.length)]);
   }
   return sh;
 }
@@ -69,6 +76,7 @@ function doPost(e) {
     if (action === 'clear_guidelines') return json_(clearGuidelines_());
     if (action === 'save_session') return json_(saveSession_(body));
     if (action === 'delete_session') return json_(deleteSession_(body));
+    if (action === 'delete_guideline_source') return json_(deleteGuidelineSource_(body));
     return json_({ error: '알 수 없는 action: ' + action });
   } catch (err) {
     return json_({ error: String(err) });
@@ -105,9 +113,14 @@ function clearGuidelines_() {
 function listSessions_() {
   const sh = getSheet_('Sessions', SESSIONS_HEADERS);
   const rows = sh.getDataRange().getValues().slice(1).filter(r => r[0]);
-  const sessions = rows.map(r => ({
-    id: r[0], filename: r[1], created_at: r[2], items: JSON.parse(r[3] || '[]'),
-  }));
+  const sessions = rows.map(r => {
+    // items_json은 예전엔 items 배열을 그대로 담았고, 지금은 {items, usedGuidelines}를 담는다 - 둘 다 지원.
+    let payload;
+    try { payload = JSON.parse(r[3] || '{}'); } catch (e) { payload = {}; }
+    const items = Array.isArray(payload) ? payload : (payload.items || []);
+    const usedGuidelines = Array.isArray(payload) ? [] : (payload.usedGuidelines || []);
+    return { id: r[0], filename: r[1], created_at: r[2], items, usedGuidelines, reviewer: r[4] || '' };
+  });
   sessions.sort((a, b) => b.created_at.localeCompare(a.created_at));
   return sessions;
 }
@@ -127,10 +140,22 @@ function saveSession_(body) {
   const sh = getSheet_('Sessions', SESSIONS_HEADERS);
   const id = Utilities.getUuid();
   const createdAt = new Date().toISOString();
-  const row = [id, body.filename, createdAt, JSON.stringify(body.items || [])];
+  const itemsJson = JSON.stringify({ items: body.items || [], usedGuidelines: body.usedGuidelines || [] });
+  const row = [id, body.filename, createdAt, itemsJson, body.reviewer || ''];
   sh.appendRow(row);
   appendArchiveRows_(SESSIONS_ARCHIVE_SHEET, SESSIONS_HEADERS, [row]);
   return { id: id, created_at: createdAt };
+}
+
+/* 지침 문서 하나(source_file 기준)만 삭제 - 전체 삭제(clear_guidelines) 없이 특정 문서만 교체/제거할 때 사용 */
+function deleteGuidelineSource_(body) {
+  const sh = getSheet_('Guidelines', GUIDELINES_HEADERS);
+  const data = sh.getDataRange().getValues();
+  let deleted = 0;
+  for (let i = data.length - 1; i >= 1; i--) {
+    if (data[i][1] === body.source_file) { sh.deleteRow(i + 1); deleted++; }
+  }
+  return { ok: true, deleted: deleted };
 }
 
 /* ===================== 보관용(Archive) 백업 =====================
