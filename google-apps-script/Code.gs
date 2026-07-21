@@ -22,7 +22,6 @@
 
 const GUIDELINES_HEADERS = ['id', 'source_file', 'label', 'content', 'uploaded_at'];
 const SESSIONS_HEADERS = ['id', 'filename', 'created_at', 'items_json'];
-const MAX_SESSIONS = 50;
 
 // 'Sessions'/'Guidelines' 탭을 실수로 수동 편집/삭제해도 데이터를 복구할 수 있도록,
 // 저장할 때마다 별도의 보관용(Archive) 탭에도 같은 행을 추가로 남긴다. 이 탭은 화면 어디서도
@@ -110,7 +109,7 @@ function listSessions_() {
     id: r[0], filename: r[1], created_at: r[2], items: JSON.parse(r[3] || '[]'),
   }));
   sessions.sort((a, b) => b.created_at.localeCompare(a.created_at));
-  return sessions.slice(0, MAX_SESSIONS);
+  return sessions;
 }
 
 /* 잘못 저장된 항목(테스트/오류 데이터) 정리용. UI에는 연결하지 않은 유지보수용 액션 —
