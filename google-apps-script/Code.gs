@@ -24,6 +24,12 @@ const GUIDELINES_HEADERS = ['id', 'source_file', 'label', 'content', 'uploaded_a
 const SESSIONS_HEADERS = ['id', 'filename', 'created_at', 'items_json'];
 const MAX_SESSIONS = 50;
 
+// 'Sessions'/'Guidelines' 탭을 실수로 수동 편집/삭제해도 데이터를 복구할 수 있도록,
+// 저장할 때마다 별도의 보관용(Archive) 탭에도 같은 행을 추가로 남긴다. 이 탭은 화면 어디서도
+// 읽지 않으므로 평소에 열어볼 일이 없어 실수로 지워질 위험이 낮다.
+const SESSIONS_ARCHIVE_SHEET = 'Sessions_Archive';
+const GUIDELINES_ARCHIVE_SHEET = 'Guidelines_Archive';
+
 function getSheet_(name, headers) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   let sh = ss.getSheetByName(name);
@@ -44,6 +50,7 @@ function doGet(e) {
   try {
     if (action === 'list_guidelines') return json_(listGuidelines_());
     if (action === 'list_sessions') return json_(listSessions_());
+    if (action === 'setup_protection') return json_(protectAgainstManualEdits_());
     return json_({ error: '알 수 없는 action: ' + action });
   } catch (err) {
     return json_({ error: String(err) });
@@ -62,6 +69,7 @@ function doPost(e) {
     if (action === 'add_guidelines') return json_(addGuidelines_(body));
     if (action === 'clear_guidelines') return json_(clearGuidelines_());
     if (action === 'save_session') return json_(saveSession_(body));
+    if (action === 'delete_session') return json_(deleteSession_(body));
     return json_({ error: '알 수 없는 action: ' + action });
   } catch (err) {
     return json_({ error: String(err) });
@@ -83,6 +91,7 @@ function addGuidelines_(body) {
   const rows = chunks.map(c => [Utilities.getUuid(), body.source_file, c[0], c[1], uploadedAt]);
   if (rows.length) {
     sh.getRange(sh.getLastRow() + 1, 1, rows.length, GUIDELINES_HEADERS.length).setValues(rows);
+    appendArchiveRows_(GUIDELINES_ARCHIVE_SHEET, GUIDELINES_HEADERS, rows);
   }
   return { ok: true, added: rows.length };
 }
@@ -104,10 +113,63 @@ function listSessions_() {
   return sessions.slice(0, MAX_SESSIONS);
 }
 
+/* 잘못 저장된 항목(테스트/오류 데이터) 정리용. UI에는 연결하지 않은 유지보수용 액션 —
+   Archive 탭에는 남겨두고 'Sessions' 원본 탭에서만 지운다. */
+function deleteSession_(body) {
+  const sh = getSheet_('Sessions', SESSIONS_HEADERS);
+  const data = sh.getDataRange().getValues();
+  for (let i = data.length - 1; i >= 1; i--) {
+    if (data[i][0] === body.id) { sh.deleteRow(i + 1); return { ok: true, deleted: 1 }; }
+  }
+  return { ok: true, deleted: 0 };
+}
+
 function saveSession_(body) {
   const sh = getSheet_('Sessions', SESSIONS_HEADERS);
   const id = Utilities.getUuid();
   const createdAt = new Date().toISOString();
-  sh.appendRow([id, body.filename, createdAt, JSON.stringify(body.items || [])]);
+  const row = [id, body.filename, createdAt, JSON.stringify(body.items || [])];
+  sh.appendRow(row);
+  appendArchiveRows_(SESSIONS_ARCHIVE_SHEET, SESSIONS_HEADERS, [row]);
   return { id: id, created_at: createdAt };
+}
+
+/* ===================== 보관용(Archive) 백업 =====================
+   'Sessions'/'Guidelines' 탭이 (수동 편집 등으로) 실수로 지워지는 사고에 대비해,
+   저장할 때마다 별도 탭에도 같은 행을 추가로 남긴다. 이 함수는 오직 appendRow만 하고
+   절대 지우지 않으므로, 원본 탭 데이터가 사라져도 이 탭에서 그대로 복구할 수 있다. */
+function appendArchiveRows_(sheetName, headers, rows) {
+  const sh = getSheet_(sheetName, headers);
+  sh.getRange(sh.getLastRow() + 1, 1, rows.length, headers.length).setValues(rows);
+}
+
+/* 사고 발생 시 수동 복구용: Apps Script 편집기에서 이 함수를 직접 실행하면 Archive 탭에는
+   있지만 원본 'Sessions' 탭에는 없는 행(id 기준)을 원본 탭에 다시 채워 넣는다. */
+function restoreSessionsFromArchive_() {
+  const archive = getSheet_(SESSIONS_ARCHIVE_SHEET, SESSIONS_HEADERS);
+  const sh = getSheet_('Sessions', SESSIONS_HEADERS);
+  const archiveRows = archive.getDataRange().getValues().slice(1).filter(r => r[0]);
+  const existingIds = new Set(sh.getDataRange().getValues().slice(1).map(r => r[0]));
+  const missing = archiveRows.filter(r => !existingIds.has(r[0]));
+  if (missing.length) {
+    sh.getRange(sh.getLastRow() + 1, 1, missing.length, SESSIONS_HEADERS.length).setValues(missing);
+  }
+  return missing.length;
+}
+
+/* ===================== 실수 방지: 시트 보호 =====================
+   'Sessions'/'Guidelines' 탭에 경고만 뜨는 보호를 걸어, 시트를 직접 열어 수동으로
+   셀을 지우거나 편집하려 할 때 확인 창이 한 번 더 뜨도록 한다(소유자도 예외 없이 적용).
+   여러 번 실행해도 중복 보호가 걸리지 않도록 기존 보호가 있으면 건너뛴다. */
+function protectAgainstManualEdits_() {
+  ['Guidelines', 'Sessions', GUIDELINES_ARCHIVE_SHEET, SESSIONS_ARCHIVE_SHEET].forEach(name => {
+    const headers = (name === 'Guidelines' || name === GUIDELINES_ARCHIVE_SHEET) ? GUIDELINES_HEADERS : SESSIONS_HEADERS;
+    const sh = getSheet_(name, headers);
+    const already = sh.getProtections(SpreadsheetApp.ProtectionType.SHEET);
+    if (already.length) return;
+    sh.protect()
+      .setDescription('실수로 인한 삭제 방지 - lips-review.html 웹앱을 통해서만 편집하세요')
+      .setWarningOnly(true);
+  });
+  return { ok: true };
 }
