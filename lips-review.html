@@ -515,6 +515,36 @@ async function seedDefaultGuidelinesIfNeeded() {
   await addGuidelineChunks(DEFAULT_GUIDELINE_SOURCE, chunks);
 }
 
+/* ===================== 구버전 localStorage 지침 복구 =====================
+   2026-07-20에 저장소를 localStorage → 구글시트로 전환하면서 그 시점까지
+   localStorage(lips_guidelines_v1)에 있던 지침을 시트로 옮기는 코드가 빠져있었음.
+   이 브라우저에 그 구버전 데이터가 남아있으면 최초 1회 시트로 복구해 옮긴다. */
+const LS_LEGACY_GUIDELINES = 'lips_guidelines_v1';
+const LS_LEGACY_MIGRATED = 'lips_guidelines_migrated_to_sheet_v1';
+
+async function migrateLegacyLocalGuidelinesIfNeeded() {
+  if (localStorage.getItem(LS_LEGACY_MIGRATED)) return;
+  let legacy;
+  try { legacy = JSON.parse(localStorage.getItem(LS_LEGACY_GUIDELINES) || '[]'); } catch { legacy = []; }
+  legacy = legacy.filter(g => g && g.source_file !== DEFAULT_GUIDELINE_SOURCE && g.content);
+  if (!legacy.length) { localStorage.setItem(LS_LEGACY_MIGRATED, '1'); return; }
+
+  const current = await loadGuidelines();
+  const existingContent = new Set(current.map(g => g.content));
+  const bySource = {};
+  for (const g of legacy) {
+    if (existingContent.has(g.content)) continue;
+    (bySource[g.source_file] = bySource[g.source_file] || []).push([g.label, g.content]);
+  }
+  let migrated = 0;
+  for (const [sourceFile, chunks] of Object.entries(bySource)) {
+    await addGuidelineChunks(sourceFile, chunks);
+    migrated += chunks.length;
+  }
+  localStorage.setItem(LS_LEGACY_MIGRATED, '1');
+  if (migrated) alert(`이전 브라우저에 저장돼 있던 지침 ${migrated}개를 공유 저장소(구글시트)로 복구했습니다.`);
+}
+
 async function loadSessions() { return apiGet('list_sessions'); }
 async function saveSession(filename, items) {
   return apiPost('save_session', { filename, items });
@@ -881,6 +911,7 @@ function promptForKey() {
     return;
   }
   try { await seedDefaultGuidelinesIfNeeded(); } catch (e) { console.error(e); }
+  try { await migrateLegacyLocalGuidelinesIfNeeded(); } catch (e) { console.error(e); }
   await refreshGuidelinesView();
 })();
 </script>
