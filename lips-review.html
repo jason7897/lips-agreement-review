@@ -213,6 +213,7 @@
   <button class="tab" data-view="qna">💬 Q&A</button>
   <button class="tab" data-view="guidelines">📚 지침·공고문 관리</button>
   <button class="tab" data-view="history">🕘 검토 이력</button>
+  <button class="tab" data-view="stats">📊 통계</button>
 </nav>
 
 <main>
@@ -228,10 +229,16 @@
           <input type="radio" name="review-mode" id="mode-eligibility" value="eligibility" /> ✅ 지원요건(자격) 검토
         </label>
       </div>
-      <div class="row" style="margin-bottom:12px">
+      <div class="row" style="margin-bottom:12px; gap:10px">
         <select id="review-program-tag" style="font-size:13px; padding:8px 12px; border:1px solid var(--border); border-radius:var(--radius-sm); background:var(--card); color:var(--text)">
           <option value="">전체 (사업/회차 자동 판단)</option>
         </select>
+        <span id="review-deadline-badge"></span>
+      </div>
+      <div class="row" style="margin-bottom:12px">
+        <label class="row" style="gap:6px; cursor:pointer; font-size:13px">
+          <input type="checkbox" id="mode-double-check" /> 🔍 이중 검증(적합·불가 판정 재확인, 다소 느려짐)
+        </label>
       </div>
       <div class="dropzone">
         <span class="dz-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
@@ -348,6 +355,14 @@
       <div id="history-list"></div>
     </div>
     <div id="history-detail"></div>
+  </div>
+
+  <div id="view-stats" class="view">
+    <div class="card">
+      <h2><span class="h2-icon blue">📊</span> 통계 대시보드</h2>
+      <p class="muted" style="margin:0 0 14px">검토 이력·Q&A 이력을 집계한 요약입니다. 참고용이며 실제 의사결정은 원본 이력을 확인하세요.</p>
+      <div id="stats-content"></div>
+    </div>
   </div>
 
 </main>
@@ -720,12 +735,14 @@ async function loadSessions() { return apiGet('list_sessions'); }
 async function saveSession(filename, items, usedGuidelines, reviewer, reviewType) {
   return apiPost('save_session', { filename, items, usedGuidelines, reviewer, review_type: reviewType || 'budget' });
 }
+async function updateSessionStatus(id, status) { return apiPost('update_session_status', { id, status }); }
 async function deleteGuidelineSource(sourceFile) {
   return apiPost('delete_guideline_source', { source_file: sourceFile });
 }
+async function loadGuidelineArchive(sourceFile) { return apiGet('list_guideline_archive', { source_file: sourceFile }); }
 async function loadQna() { return apiGet('list_qna'); }
-async function saveQna(question, answer, usedDocs, askedBy) {
-  return apiPost('save_qna', { question, answer, usedDocs, asked_by: askedBy });
+async function saveQna(question, answer, usedDocs, askedBy, confidence) {
+  return apiPost('save_qna', { question, answer, usedDocs, asked_by: askedBy, confidence });
 }
 async function bumpQnaHit(id) { return apiPost('bump_qna_hit', { id }); }
 
@@ -757,6 +774,11 @@ const SYSTEM_PROMPT = `당신은 중소벤처기업부 LIPS(혁신 소상공인 
 쪽(불가 > 수정필요 > 확인필요 > 적합 순)을 최종 verdict로 채택하고, reason에는 두 단계에서 확인한
 내용을 모두 포함하세요.
 
+위 두 단계의 결론은 reason 문장 속에 묻어두지 말고, 아래 JSON의 전용 필드(cost_category,
+cost_category_match, usability)에도 반드시 명확하게 별도로 채우세요 — 담당자가 표만 훑어봐도
+"이 항목이 무슨 비목이고, 그 비목이 맞는지, 그래서 이 지출을 지금 그대로 써도 되는지"를 바로
+알 수 있어야 합니다.
+
 소계·합계 행은 판정 대상에서 제외하세요.
 
 반드시 아래 JSON 형식으로만 응답하세요. 다른 텍스트는 출력하지 마세요.
@@ -765,6 +787,9 @@ const SYSTEM_PROMPT = `당신은 중소벤처기업부 LIPS(혁신 소상공인 
     {
       "item_label": "항목명 (예: 인건비(현물))",
       "amount_summary": "해당 항목 금액 요약 (예: 13,000,000원)",
+      "cost_category": "1단계에서 실제 집행내용 성격에 맞다고 판단한 비목 하나만 명시 (예: '일반용역비', '일반수용비', '임차료(현물)', '인건비(현물)' 중 하나, 그 외 비목이면 실제 표기된 비목명 그대로)",
+      "cost_category_match": "적정" 또는 "부적정" 또는 "확인불가" - 표에 기재된 비목명이 위 cost_category(실제 성격상 맞는 비목)와 일치하면 '적정', 다르면 '부적정', 판단 근거가 부족하면 '확인불가'",
+      "usability": "사용가능" 또는 "사용불가" 또는 "조건부가능" 또는 "확인필요" - 2단계(금액/한도) 판단 기준 이 집행항목을 근거 조항에 비추어 지금 이대로 집행해도 되는지에 대한 결론. '조건부가능'은 한도 초과분 축소 등 일부 조정하면 집행 가능한 경우",
       "verdict": "적합" 또는 "수정필요" 또는 "불가" 또는 "확인필요",
       "reason": "판정 이유를 한국어로 구체적으로 서술 (아래 reason 작성 규칙 준수)",
       "guideline_ref": "근거로 삼은 지침 조항 라벨. 조/항/호 번호까지 구체적으로 표기 (예: '국가계약법 시행령 제26조(수의계약에 의할 수 있는 경우)'). 근거가 없어 확인필요로 처리한 경우 빈 문자열",
@@ -821,7 +846,36 @@ async function callGroq(userPrompt, systemPrompt) {
   return JSON.parse(data.choices[0].message.content);
 }
 
-async function reviewBusinessPlan(planText, programTag) {
+/* ===================== 이중 검증 (교차검토, 선택 적용) =====================
+   "적합"/"불가"처럼 결정적인 판정만 골라 별도 회의적(懷疑的) 프롬프트로 한 번 더 물어보고,
+   이견이 나오면 "확인필요"로 낮춘다. 항목 수만큼 Groq 호출이 늘어나 느려지므로 사용자가
+   체크박스로 켤 때만 동작한다. */
+const SYSTEM_PROMPT_SKEPTIC = `당신은 위 판정 결과를 검증하는 감사역입니다. 제공된 근거 조항만으로
+이 판정이 확실히 맞다고 볼 수 있는지 비판적으로 재검토하세요. 근거가 명확하지 않거나 다르게
+해석될 여지가 있으면 반드시 이견(agree=false)을 표시하세요.
+반드시 아래 JSON 형식으로만 응답하세요. 다른 텍스트는 출력하지 마세요.
+{"agree": true 또는 false, "note": "이견이 있다면 그 사유, 없으면 빈 문자열"}`;
+
+async function crossVerifyItems(items, guidelineBlock) {
+  const verified = [];
+  for (const it of items) {
+    if (it.verdict !== '적합' && it.verdict !== '불가') { verified.push(it); continue; }
+    try {
+      const prompt = `[근거로 사용된 지침/공고문/사례 조항]\n${guidelineBlock.slice(0, 3000)}\n\n[검증할 판정]\n항목: ${it.item_label}\n판정: ${it.verdict}\n사유: ${it.reason}\n근거 조항 라벨: ${it.guideline_ref}`;
+      const res = await callGroq(prompt, SYSTEM_PROMPT_SKEPTIC);
+      if (res && res.agree === false) {
+        verified.push({ ...it, verdict: '확인필요', reason: `[교차검증 이견] ${res.note || '재검증 결과 이견이 있어 확인필요로 조정됨'} (최초 판정: ${it.verdict} - ${it.reason})` });
+        continue;
+      }
+    } catch (e) {
+      console.warn('교차검증 실패 - 최초 판정을 유지합니다:', e);
+    }
+    verified.push(it);
+  }
+  return verified;
+}
+
+async function reviewBusinessPlan(planText, programTag, doubleCheck) {
   if (!(await loadGuidelines()).length) {
     throw new Error('업로드된 지침이 없습니다. 먼저 "지침 관리" 탭에서 지침 문서를 업로드해 학습시켜 주세요.');
   }
@@ -844,15 +898,20 @@ async function reviewBusinessPlan(planText, programTag) {
   if (!items.length) {
     throw new Error('사업비 항목을 판정하지 못했습니다. 문서 추출 상태를 확인해주세요.');
   }
+  let finalItems = items.map(it => ({
+    item_label: it.item_label || '(항목명 미상)',
+    item_content: it.amount_summary || '',
+    cost_category: it.cost_category || '',
+    cost_category_match: it.cost_category_match || '',
+    usability: it.usability || '',
+    verdict: it.verdict || '확인필요',
+    reason: it.reason || '',
+    guideline_ref: it.guideline_ref || '',
+    suggestion: it.suggestion || '',
+  }));
+  if (doubleCheck) finalItems = await crossVerifyItems(finalItems, guidelineBlock);
   return {
-    items: items.map(it => ({
-      item_label: it.item_label || '(항목명 미상)',
-      item_content: it.amount_summary || '',
-      verdict: it.verdict || '확인필요',
-      reason: it.reason || '',
-      guideline_ref: it.guideline_ref || '',
-      suggestion: it.suggestion || '',
-    })),
+    items: finalItems,
     usedGuidelines: relevant.map(g => ({ label: g.label, content: g.content })),
   };
 }
@@ -921,7 +980,7 @@ const SYSTEM_PROMPT_ELIGIBILITY = `당신은 중소벤처기업부 LIPS(혁신 �
 당신은 보수적으로 판단해야 합니다. 확신이 없으면 "적합"으로 임의 처리하지 말고 "확인필요"로 분류하세요.
 이 도구는 접수 담당자의 1차 필터일 뿐 최종 승인이 아닙니다.`;
 
-async function reviewEligibility(planText, programTag) {
+async function reviewEligibility(planText, programTag, doubleCheck) {
   const notices = await loadGuidelines();
   if (!notices.some(g => (g.doc_type || '지침') === '공고문')) {
     throw new Error('학습된 공고문이 없습니다. 먼저 "지침·공고문 관리" 탭에서 이번 차수 모집공고문을 "공고문"으로 업로드해 학습시켜 주세요.');
@@ -953,15 +1012,17 @@ async function reviewEligibility(planText, programTag) {
   if (!items.length) {
     throw new Error('지원요건 항목을 판정하지 못했습니다. 문서 추출 상태 또는 학습된 공고문 내용을 확인해주세요.');
   }
+  let finalItems = items.map(it => ({
+    item_label: it.item_label || '(요건명 미상)',
+    item_content: it.amount_summary || '',
+    verdict: it.verdict || '확인필요',
+    reason: it.reason || '',
+    guideline_ref: it.guideline_ref || '',
+    suggestion: it.suggestion || '',
+  }));
+  if (doubleCheck) finalItems = await crossVerifyItems(finalItems, guidelineBlock + caseBlock);
   return {
-    items: items.map(it => ({
-      item_label: it.item_label || '(요건명 미상)',
-      item_content: it.amount_summary || '',
-      verdict: it.verdict || '확인필요',
-      reason: it.reason || '',
-      guideline_ref: it.guideline_ref || '',
-      suggestion: it.suggestion || '',
-    })),
+    items: finalItems,
     usedGuidelines: relevant.map(g => ({ label: g.label, content: g.content })),
   };
 }
@@ -1042,6 +1103,7 @@ document.querySelectorAll('nav .tab').forEach(btn => {
     if (btn.dataset.view === 'guidelines') refreshGuidelinesView();
     if (btn.dataset.view === 'history') refreshHistoryView();
     if (btn.dataset.view === 'qna') refreshQnaView();
+    if (btn.dataset.view === 'stats') refreshStatsView();
   });
 });
 
@@ -1052,6 +1114,8 @@ document.querySelectorAll('input[name="review-mode"]').forEach(radio => {
     $('#mode-hint-eligibility').style.display = eligibility ? '' : 'none';
   });
 });
+
+$('#review-program-tag').addEventListener('change', refreshDeadlineBadge);
 
 const VERDICT_ICONS = {
   적합: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 13l4 4L19 7"/></svg>',
@@ -1068,8 +1132,13 @@ let RENDER_SEQ = 0;
 const renderRegistry = {};
 
 function itemsToCsv(items) {
-  const headers = ['항목', '판정', '사유', '근거 지침', '수정 제안'];
-  const rows = items.map(it => [it.item_label, it.verdict, it.reason, it.guideline_ref, it.suggestion]);
+  const hasCostFields = items.some(it => it.cost_category || it.usability);
+  const headers = ['항목', ...(hasCostFields ? ['비목 분류', '표기 비목 적정성', '사용 가능 여부'] : []), '판정', '사유', '근거 지침', '수정 제안'];
+  const rows = items.map(it => [
+    it.item_label,
+    ...(hasCostFields ? [it.cost_category || '', it.cost_category_match || '', it.usability || ''] : []),
+    it.verdict, it.reason, it.guideline_ref, it.suggestion,
+  ]);
   const esc = v => `"${String(v == null ? '' : v).replace(/"/g, '""')}"`;
   return '﻿' + [headers, ...rows].map(r => r.map(esc).join(',')).join('\r\n');
 }
@@ -1096,6 +1165,17 @@ document.addEventListener('click', (e) => {
   if (e.target.closest('.btn-print')) { window.print(); return; }
 });
 
+// usability/cost_category_match는 사업비 집행 검토(reviewBusinessPlan)에서만 채워지는 필드라,
+// 값이 있는 항목이 하나라도 있을 때만 renderResultTable이 전용 컬럼을 추가로 보여준다.
+function usabilityBadge(v) {
+  const map = { 사용가능: '적합', 조건부가능: '수정필요', 사용불가: '불가' };
+  return `<span class="badge ${map[v] || '확인필요'}">${escapeHtml(v || '확인필요')}</span>`;
+}
+function costCategoryMatchBadge(v) {
+  const map = { 적정: '적합', 부적정: '불가' };
+  return `<span class="badge ${map[v] || '확인필요'}">${escapeHtml(v || '확인불가')}</span>`;
+}
+
 function renderResultTable(items, opts) {
   opts = opts || {};
   const usedGuidelines = opts.usedGuidelines || [];
@@ -1105,6 +1185,7 @@ function renderResultTable(items, opts) {
 
   const counts = { 적합: 0, 수정필요: 0, 불가: 0, 확인필요: 0 };
   items.forEach(it => counts[it.verdict] = (counts[it.verdict] || 0) + 1);
+  const hasCostFields = items.some(it => it.cost_category || it.usability);
 
   const metaLine = [meta.filename, meta.reviewer ? `검토자: ${meta.reviewer}` : '', meta.created_at ? new Date(meta.created_at).toLocaleString() : '']
     .filter(Boolean).map(escapeHtml).join(' · ');
@@ -1124,11 +1205,12 @@ function renderResultTable(items, opts) {
       ${counts['확인필요'] ? `<div class="stat unk"><span class="stat-label">${VERDICT_ICONS['확인필요']}확인필요</span><b>${counts['확인필요']}</b></div>` : ''}
     </div>
     <div class="table-wrap"><table>
-      <thead><tr><th>항목</th><th>판정</th><th>사유</th><th>근거 지침</th><th>수정 제안</th></tr></thead>
+      <thead><tr><th>항목</th>${hasCostFields ? '<th>비목 분류</th><th>사용 가능 여부</th>' : ''}<th>판정</th><th>사유</th><th>근거 지침</th><th>수정 제안</th></tr></thead>
       <tbody>`;
   for (const it of items) {
     html += `<tr>
       <td><b>${escapeHtml(it.item_label)}</b><div class="item-content">${escapeHtml(it.item_content).slice(0, 300)}</div></td>
+      ${hasCostFields ? `<td>${escapeHtml(it.cost_category || '-')}${it.cost_category_match ? `<div class="muted" style="margin-top:4px">표기 비목 ${costCategoryMatchBadge(it.cost_category_match)}</div>` : ''}</td><td>${usabilityBadge(it.usability)}</td>` : ''}
       <td>${verdictBadge(it.verdict)}</td>
       <td>${escapeHtml(it.reason)}</td>
       <td class="muted">${escapeHtml(it.guideline_ref)}</td>
@@ -1158,6 +1240,7 @@ $('#btn-review').addEventListener('click', async () => {
   const reviewer = getReviewerName();
   const reviewType = $('#mode-eligibility').checked ? 'eligibility' : 'budget';
   const programTag = $('#review-program-tag').value;
+  const doubleCheck = $('#mode-double-check').checked;
   const btn = $('#btn-review');
   btn.disabled = true;
   $('#spinner').classList.add('show');
@@ -1175,8 +1258,8 @@ $('#btn-review').addEventListener('click', async () => {
       const text = await extractText(file);
       if (!text.trim()) throw new Error('문서에서 텍스트를 추출하지 못했습니다.');
       const { items, usedGuidelines } = reviewType === 'eligibility'
-        ? await reviewEligibility(text, programTag)
-        : await reviewBusinessPlan(text, programTag);
+        ? await reviewEligibility(text, programTag, doubleCheck)
+        : await reviewBusinessPlan(text, programTag, doubleCheck);
       const createdAt = new Date().toISOString();
       card.innerHTML = renderResultTable(items, { usedGuidelines, meta: { filename: file.name, reviewer, created_at: createdAt } });
       try {
@@ -1273,6 +1356,55 @@ async function refreshProgramTagSelects() {
       tags.map(t => `<option value="${escapeHtml(t)}">${escapeHtml(t)}</option>`).join('');
     if (tags.includes(current)) el.value = current;
   });
+  await refreshDeadlineBadge();
+}
+
+/* ===================== 공고문 마감일 인식 (정규식 기반 추정, 참고용) =====================
+   "마감"/"접수기간"/"까지" 근처 문맥에서 날짜를 뽑아 가장 가까운 마감일을 추정해 배지로 보여준다.
+   PDF 추출 노이즈로 오탐할 수 있으므로 어디까지나 참고용 - 실제 마감일은 공고문 원문으로 재확인. */
+function extractDatesFromText(text) {
+  const re = /(\d{4})[.\-년]\s*(\d{1,2})[.\-월]\s*(\d{1,2})/g;
+  const dates = [];
+  let m;
+  while ((m = re.exec(text))) {
+    const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+    if (!isNaN(d.getTime())) dates.push(d);
+  }
+  return dates;
+}
+
+function findNearestDeadline(noticeDocs) {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  let nearest = null;
+  for (const doc of noticeDocs) {
+    const contexts = doc.content.match(/[^\n]{0,10}(마감|접수\s*기간|까지)[^\n]{0,40}/g) || [];
+    for (const ctx of contexts) {
+      for (const d of extractDatesFromText(ctx)) {
+        if (!nearest || d > nearest) nearest = d; // 접수기간 표기는 보통 끝 날짜가 마지막에 나오므로 가장 늦은 날짜를 채택
+      }
+    }
+  }
+  return nearest;
+}
+
+async function refreshDeadlineBadge() {
+  const badgeEl = $('#review-deadline-badge');
+  if (!badgeEl) return;
+  const programTag = $('#review-program-tag') ? $('#review-program-tag').value : '';
+  let guidelines;
+  try { guidelines = await loadGuidelines(); } catch (e) { badgeEl.innerHTML = ''; return; }
+  let notices = guidelines.filter(g => (g.doc_type || '지침') === '공고문');
+  if (programTag) notices = notices.filter(g => programTagMatches(g, programTag));
+  const deadline = findNearestDeadline(notices);
+  if (!deadline) { badgeEl.innerHTML = ''; return; }
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const dDay = Math.round((deadline - today) / 86400000);
+  const dateStr = deadline.toISOString().slice(0, 10);
+  const label = dDay < 0 ? '마감 지남' : (dDay === 0 ? 'D-Day' : `D-${dDay}`);
+  const badgeClass = dDay <= 7 ? '불가' : '확인필요';
+  badgeEl.innerHTML = `<span class="badge ${badgeClass}" title="정규식 추정치 - 반드시 공고문 원문으로 재확인하세요">⏰ 마감 ${dateStr} (${label})</span>`;
 }
 
 async function refreshGuidelinesView() {
@@ -1302,8 +1434,11 @@ async function refreshGuidelinesView() {
   }
   list.innerHTML = `<div class="table-wrap"><table><thead><tr><th>구분</th><th>출처</th><th>사업/회차</th><th>조항 수</th><th>업로드 시각</th><th></th></tr></thead><tbody>` +
     sources.map(s => `<tr><td>${docTypeBadge(s.doc_type)}</td><td>${escapeHtml(s.source_file)}</td><td class="muted">${escapeHtml(s.program_tag || '공통')}</td><td>${s.n}</td><td class="muted">${escapeHtml(new Date(s.uploaded_at).toLocaleString())}</td>
-      <td><button class="link-btn btn-delete-source" data-source="${escapeHtml(s.source_file)}">삭제</button></td></tr>`).join('') +
-    `</tbody></table></div>`;
+      <td class="row" style="gap:4px; flex-wrap:nowrap">
+        <button class="link-btn btn-view-history" data-source="${escapeHtml(s.source_file)}">이력</button>
+        <button class="link-btn btn-delete-source" data-source="${escapeHtml(s.source_file)}">삭제</button>
+      </td></tr>`).join('') +
+    `</tbody></table></div><div id="guideline-history-panel"></div>`;
   list.querySelectorAll('.btn-delete-source').forEach(btn => {
     btn.addEventListener('click', async () => {
       const source = btn.dataset.source;
@@ -1313,6 +1448,23 @@ async function refreshGuidelinesView() {
         await refreshGuidelinesView();
       } catch (e) {
         alert('오류: ' + e.message);
+      }
+    });
+  });
+  list.querySelectorAll('.btn-view-history').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const source = btn.dataset.source;
+      const panel = $('#guideline-history-panel');
+      panel.innerHTML = `<div class="card muted">"${escapeHtml(source)}" 이력 불러오는 중...</div>`;
+      try {
+        const versions = await loadGuidelineArchive(source);
+        panel.innerHTML = `<div class="card">
+          <h2 style="font-size:13px">🕘 "${escapeHtml(source)}" 업로드 이력 (${versions.length}건 - 삭제된 조항도 포함)</h2>
+          <div class="table-wrap"><table><thead><tr><th>조항</th><th>구분</th><th>사업/회차</th><th>업로드 시각</th></tr></thead><tbody>` +
+          versions.map(v => `<tr><td>${escapeHtml(v.label)}</td><td>${docTypeBadge(v.doc_type)}</td><td class="muted">${escapeHtml(v.program_tag || '공통')}</td><td class="muted">${escapeHtml(new Date(v.uploaded_at).toLocaleString())}</td></tr>`).join('') +
+          `</tbody></table></div></div>`;
+      } catch (e) {
+        panel.innerHTML = `<div class="card err-box">이력을 불러오지 못했습니다: ${escapeHtml(e.message)}</div>`;
       }
     });
   });
@@ -1338,9 +1490,16 @@ async function refreshHistoryView() {
   }
   const typeBadge = t => t === 'eligibility'
     ? `<span class="badge 확인필요">✅ 지원요건</span>` : `<span class="badge 적합">🧾 사업비</span>`;
-  list.innerHTML = `<div class="table-wrap"><table><thead><tr><th>구분</th><th>파일명</th><th>검토자</th><th>검토 시각</th><th></th></tr></thead><tbody>` +
+  const statusBadge = st => st === '승인' ? `<span class="badge 적합">✔ 승인</span>`
+    : st === '반려' ? `<span class="badge 불가">✘ 반려</span>` : `<span class="badge 확인필요">⏳ 대기</span>`;
+  list.innerHTML = `<div class="table-wrap"><table><thead><tr><th>구분</th><th>파일명</th><th>검토자</th><th>검토 시각</th><th>상태</th><th></th></tr></thead><tbody>` +
     sessions.map(s => `<tr><td>${typeBadge(s.review_type)}</td><td>${escapeHtml(s.filename)}</td><td class="muted">${escapeHtml(s.reviewer || '-')}</td><td class="muted">${escapeHtml(new Date(s.created_at).toLocaleString())}</td>
-      <td><button class="link-btn" data-session="${s.id}">결과 보기</button></td></tr>`).join('') +
+      <td>${statusBadge(s.status)}</td>
+      <td class="row" style="gap:4px; flex-wrap:nowrap">
+        <button class="link-btn" data-session="${s.id}">결과 보기</button>
+        <button class="link-btn" data-status-approve="${s.id}" title="승인">✔</button>
+        <button class="link-btn" data-status-reject="${s.id}" title="반려">✘</button>
+      </td></tr>`).join('') +
     `</tbody></table></div>`;
   list.querySelectorAll('[data-session]').forEach(btn => {
     btn.addEventListener('click', () => {
@@ -1351,6 +1510,72 @@ async function refreshHistoryView() {
       });
     });
   });
+  list.querySelectorAll('[data-status-approve]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      try { await updateSessionStatus(btn.dataset.statusApprove, '승인'); await refreshHistoryView(); } catch (e) { alert('오류: ' + e.message); }
+    });
+  });
+  list.querySelectorAll('[data-status-reject]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      try { await updateSessionStatus(btn.dataset.statusReject, '반려'); await refreshHistoryView(); } catch (e) { alert('오류: ' + e.message); }
+    });
+  });
+}
+
+/* ===================== 통계 대시보드 ===================== */
+async function refreshStatsView() {
+  const el = $('#stats-content');
+  el.innerHTML = `<div class="empty">불러오는 중...</div>`;
+  let sessions, qna;
+  try {
+    [sessions, qna] = await Promise.all([loadSessions(), loadQna()]);
+  } catch (e) {
+    el.innerHTML = `<div class="card err-box">통계를 불러오지 못했습니다: ${escapeHtml(e.message)}</div>`;
+    return;
+  }
+  const byType = { budget: 0, eligibility: 0 };
+  const byStatus = { '대기': 0, '승인': 0, '반려': 0 };
+  const byVerdict = { 적합: 0, 수정필요: 0, 불가: 0, 확인필요: 0 };
+  const itemIssueCounts = {}; // 항목명 -> 불가/수정필요로 걸린 횟수
+  for (const s of sessions) {
+    byType[s.review_type === 'eligibility' ? 'eligibility' : 'budget']++;
+    byStatus[s.status || '대기'] = (byStatus[s.status || '대기'] || 0) + 1;
+    for (const it of (s.items || [])) {
+      byVerdict[it.verdict] = (byVerdict[it.verdict] || 0) + 1;
+      if (it.verdict === '불가' || it.verdict === '수정필요') {
+        const key = (it.item_label || '').trim();
+        if (key) itemIssueCounts[key] = (itemIssueCounts[key] || 0) + 1;
+      }
+    }
+  }
+  const topIssues = Object.entries(itemIssueCounts).sort((a, b) => b[1] - a[1]).slice(0, 5);
+  const topQna = [...qna].sort((a, b) => (b.hit_count || 1) - (a.hit_count || 1)).slice(0, 5);
+
+  el.innerHTML = `
+    <div class="summary">
+      <div class="stat ok"><span class="stat-label">🧾 사업비 검토</span><b>${byType.budget}</b></div>
+      <div class="stat warn"><span class="stat-label">✅ 지원요건 검토</span><b>${byType.eligibility}</b></div>
+      <div class="stat unk"><span class="stat-label">⏳ 승인 대기</span><b>${byStatus['대기'] || 0}</b></div>
+      <div class="stat bad"><span class="stat-label">✘ 반려</span><b>${byStatus['반려'] || 0}</b></div>
+    </div>
+    <div class="summary">
+      <div class="stat ok"><span class="stat-label">적합</span><b>${byVerdict['적합']}</b></div>
+      <div class="stat warn"><span class="stat-label">수정필요</span><b>${byVerdict['수정필요']}</b></div>
+      <div class="stat bad"><span class="stat-label">불가</span><b>${byVerdict['불가']}</b></div>
+      <div class="stat unk"><span class="stat-label">확인필요</span><b>${byVerdict['확인필요']}</b></div>
+    </div>
+    <div class="card" style="box-shadow:none; border:1px solid var(--border)">
+      <h2 style="font-size:13px"><span class="h2-icon blue">⚠️</span> 자주 걸리는 요건/항목 Top 5 (수정필요·불가 기준)</h2>
+      ${topIssues.length ? `<div class="table-wrap"><table><thead><tr><th>항목명</th><th>걸린 횟수</th></tr></thead><tbody>` +
+        topIssues.map(([label, n]) => `<tr><td>${escapeHtml(label)}</td><td>${n}</td></tr>`).join('') + `</tbody></table></div>`
+        : `<p class="muted">아직 데이터가 부족합니다.</p>`}
+    </div>
+    <div class="card" style="box-shadow:none; border:1px solid var(--border)">
+      <h2 style="font-size:13px"><span class="h2-icon purple">💬</span> Q&A 총 ${qna.length}건 · 자주 묻는 질문 Top 5</h2>
+      ${topQna.length ? `<div class="table-wrap"><table><thead><tr><th>질문</th><th>문의수</th></tr></thead><tbody>` +
+        topQna.map(e => `<tr><td>${escapeHtml(e.question).slice(0, 80)}</td><td>${e.hit_count || 1}</td></tr>`).join('') + `</tbody></table></div>`
+        : `<p class="muted">아직 등록된 질문이 없습니다.</p>`}
+    </div>`;
 }
 
 /* ===================== Q&A (운영사 문의 1차 응답) UI ===================== */
@@ -1432,7 +1657,7 @@ async function askAndSaveQuestion(question, askedBy) {
       usedGuidelines: result.usedGuidelines, created_at: new Date().toISOString(), asked_by: askedBy,
     });
     try {
-      await saveQna(question, result.answer, result.usedGuidelines, askedBy);
+      await saveQna(question, result.answer, result.usedGuidelines, askedBy, result.confidence);
       $('#qna-question').value = '';
       await refreshQnaView();
     } catch (e) {

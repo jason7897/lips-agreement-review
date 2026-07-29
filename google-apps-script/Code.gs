@@ -20,12 +20,16 @@
  * 웹 앱 URL이 바뀌지 않는다.
  */
 
-// doc_type/review_type/program_tag/hit_count는 기존 배포에 나중에 추가된 컬럼이라 맨 끝에 붙인다
-// (getSheet_가 기존 탭 헤더 뒤에만 이어붙이므로, 앞쪽에 넣으면 이미 저장된 행과 컬럼이 어긋난다).
+// doc_type/review_type/program_tag/hit_count/status는 기존 배포에 나중에 추가된 컬럼이라 맨 끝에
+// 붙인다 (getSheet_가 기존 탭 헤더 뒤에만 이어붙이므로, 앞쪽에 넣으면 이미 저장된 행과 컬럼이 어긋난다).
 const GUIDELINES_HEADERS = ['id', 'source_file', 'label', 'content', 'uploaded_at', 'doc_type', 'program_tag'];
-const SESSIONS_HEADERS = ['id', 'filename', 'created_at', 'items_json', 'reviewer', 'review_type'];
+const SESSIONS_HEADERS = ['id', 'filename', 'created_at', 'items_json', 'reviewer', 'review_type', 'status'];
 const QNA_HEADERS = ['id', 'question', 'answer', 'used_docs_json', 'asked_by', 'created_at', 'hit_count'];
 const GUIDELINE_DOC_TYPES = ['지침', '공고문', '사례'];
+const SESSION_STATUSES = ['대기', '승인', '반려'];
+
+// 신뢰도 "낮음" Q&A 답변 발생 시 알림 메일을 받을 주소 - 필요하면 바꿔서 재배포하면 된다.
+const ADMIN_NOTIFY_EMAIL = 'jason@k-aia.or.kr';
 
 // 'Sessions'/'Guidelines'/'QnA' 탭을 실수로 수동 편집/삭제해도 데이터를 복구할 수 있도록,
 // 저장할 때마다 별도의 보관용(Archive) 탭에도 같은 행을 추가로 남긴다. 이 탭은 화면 어디서도
@@ -62,6 +66,7 @@ function doGet(e) {
     if (action === 'list_guidelines') return json_(listGuidelines_());
     if (action === 'list_sessions') return json_(listSessions_());
     if (action === 'list_qna') return json_(listQna_());
+    if (action === 'list_guideline_archive') return json_(listGuidelineArchive_(e.parameter.source_file || ''));
     if (action === 'setup_protection') return json_(protectAgainstManualEdits_());
     return json_({ error: '알 수 없는 action: ' + action });
   } catch (err) {
@@ -86,6 +91,7 @@ function doPost(e) {
     if (action === 'save_qna') return json_(saveQna_(body));
     if (action === 'delete_qna') return json_(deleteQna_(body));
     if (action === 'bump_qna_hit') return json_(bumpQnaHit_(body));
+    if (action === 'update_session_status') return json_(updateSessionStatus_(body));
     return json_({ error: '알 수 없는 action: ' + action });
   } catch (err) {
     return json_({ error: String(err) });
@@ -131,8 +137,8 @@ function listSessions_() {
     try { payload = JSON.parse(r[3] || '{}'); } catch (e) { payload = {}; }
     const items = Array.isArray(payload) ? payload : (payload.items || []);
     const usedGuidelines = Array.isArray(payload) ? [] : (payload.usedGuidelines || []);
-    // review_type이 없는 옛 행(이 기능 추가 이전에 저장됨)은 전부 사업비 집행 검토였다.
-    return { id: r[0], filename: r[1], created_at: r[2], items, usedGuidelines, reviewer: r[4] || '', review_type: r[5] || 'budget' };
+    // review_type/status가 없는 옛 행(이 기능 추가 이전에 저장됨)은 전부 사업비 집행 검토·대기 상태였다.
+    return { id: r[0], filename: r[1], created_at: r[2], items, usedGuidelines, reviewer: r[4] || '', review_type: r[5] || 'budget', status: r[6] || '대기' };
   });
   sessions.sort((a, b) => b.created_at.localeCompare(a.created_at));
   return sessions;
@@ -154,10 +160,36 @@ function saveSession_(body) {
   const id = Utilities.getUuid();
   const createdAt = new Date().toISOString();
   const itemsJson = JSON.stringify({ items: body.items || [], usedGuidelines: body.usedGuidelines || [] });
-  const row = [id, body.filename, createdAt, itemsJson, body.reviewer || '', body.review_type === 'eligibility' ? 'eligibility' : 'budget'];
+  const row = [id, body.filename, createdAt, itemsJson, body.reviewer || '', body.review_type === 'eligibility' ? 'eligibility' : 'budget', '대기'];
   sh.appendRow(row);
   appendArchiveRows_(SESSIONS_ARCHIVE_SHEET, SESSIONS_HEADERS, [row]);
   return { id: id, created_at: createdAt };
+}
+
+/* 담당자 승인 워크플로 - 검토 결과 자체(items_json)는 건드리지 않고 상태값만 바꾼다. */
+function updateSessionStatus_(body) {
+  const sh = getSheet_('Sessions', SESSIONS_HEADERS);
+  const status = SESSION_STATUSES.indexOf(body.status) >= 0 ? body.status : '대기';
+  const statusCol = SESSIONS_HEADERS.indexOf('status') + 1;
+  const data = sh.getDataRange().getValues();
+  for (let i = 1; i < data.length; i++) {
+    if (data[i][0] === body.id) {
+      sh.getRange(i + 1, statusCol).setValue(status);
+      return { ok: true, status: status };
+    }
+  }
+  return { ok: false };
+}
+
+/* 지침·공고문 개정 이력(감사로그) 조회 - Guidelines_Archive는 절대 삭제하지 않으므로, 이 문서명으로
+   지금까지 업로드된 모든 버전(현재 삭제된 것 포함)이 그대로 남아있다. */
+function listGuidelineArchive_(sourceFile) {
+  if (!sourceFile) return [];
+  const sh = getSheet_(GUIDELINES_ARCHIVE_SHEET, GUIDELINES_HEADERS);
+  const rows = sh.getDataRange().getValues().slice(1).filter(r => r[0] && r[1] === sourceFile);
+  return rows
+    .map(r => ({ id: r[0], source_file: r[1], label: r[2], content: r[3], uploaded_at: r[4], doc_type: r[5] || '지침', program_tag: r[6] || '' }))
+    .sort((a, b) => b.uploaded_at.localeCompare(a.uploaded_at));
 }
 
 /* 지침 문서 하나(source_file 기준)만 삭제 - 전체 삭제(clear_guidelines) 없이 특정 문서만 교체/제거할 때 사용 */
@@ -192,7 +224,23 @@ function saveQna_(body) {
   const row = [id, body.question || '', body.answer || '', usedDocsJson, body.asked_by || '', createdAt, 1];
   sh.appendRow(row);
   appendArchiveRows_(QNA_ARCHIVE_SHEET, QNA_HEADERS, [row]);
+  if (body.confidence === '낮음') notifyLowConfidenceQna_(body.question, body.answer, body.asked_by);
   return { id: id, created_at: createdAt };
+}
+
+/* 신뢰도 낮은 1차 답변은 담당자가 놓치지 않도록 메일로 알린다. 메일 발송 권한이 아직 승인되지
+   않았거나(재배포 직후 등) 일시적으로 실패해도 QnA 저장 자체는 이미 끝났으므로 조용히 무시한다. */
+function notifyLowConfidenceQna_(question, answer, askedBy) {
+  try {
+    MailApp.sendEmail({
+      to: ADMIN_NOTIFY_EMAIL,
+      subject: '[LIPS 협약 도구] 신뢰도 낮은 Q&A 답변 발생 - 확인 필요',
+      body: `질문자: ${askedBy || '(미입력)'}\n\n질문:\n${question}\n\nAI 1차 답변(신뢰도 낮음):\n${answer}\n\n` +
+        'lips-review.html의 Q&A 탭에서 원문과 근거 조항을 확인해주세요.',
+    });
+  } catch (e) {
+    console.error('낮은 신뢰도 Q&A 알림 메일 발송 실패:', e);
+  }
 }
 
 /* 새 질문이 기존 질문과 비슷하다고 판단돼 그 답변을 그대로 재사용한 경우 호출 - "자주 묻는 질문"
