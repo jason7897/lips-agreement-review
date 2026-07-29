@@ -210,7 +210,8 @@
 
 <nav>
   <button class="tab active" data-view="review">📝 사업계획서 검토</button>
-  <button class="tab" data-view="guidelines">📚 지침 관리</button>
+  <button class="tab" data-view="guidelines">📚 지침·공고문 관리</button>
+  <button class="tab" data-view="qna">💬 Q&A</button>
   <button class="tab" data-view="history">🕘 검토 이력</button>
 </nav>
 
@@ -219,6 +220,14 @@
   <div id="view-review" class="view active">
     <div class="card no-print">
       <h2><span class="h2-icon blue">📝</span> 사업계획서 업로드</h2>
+      <div class="row" style="margin-bottom:14px; gap:16px">
+        <label class="row" style="gap:6px; cursor:pointer; font-size:13px">
+          <input type="radio" name="review-mode" id="mode-budget" value="budget" checked /> 🧾 사업비 집행 검토
+        </label>
+        <label class="row" style="gap:6px; cursor:pointer; font-size:13px">
+          <input type="radio" name="review-mode" id="mode-eligibility" value="eligibility" /> ✅ 지원요건(자격) 검토
+        </label>
+      </div>
       <div class="dropzone">
         <span class="dz-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
           stroke-linecap="round" stroke-linejoin="round"><path d="M7 3h7l4 4v14a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z"/>
@@ -231,7 +240,8 @@
         <input type="text" id="reviewer-name" placeholder="검토자 이름 (선택 입력, 이력에 표시됩니다)" />
       </div>
       <p class="muted" id="review-hint" style="margin-top:12px"></p>
-      <p class="muted">📎 문서 전체가 아니라 <b>"□ 사업비 구성 및 집행계획"</b> 표(보통 문서 하단)만 자동으로 찾아서, 표 안의 집행내용(비목)별 금액이 지침에 부합하는지 검토합니다.</p>
+      <p class="muted" id="mode-hint-budget">📎 문서 전체가 아니라 <b>"□ 사업비 구성 및 집행계획"</b> 표(보통 문서 하단)만 자동으로 찾아서, 표 안의 집행내용(비목)별 금액이 지침에 부합하는지 검토합니다.</p>
+      <p class="muted" id="mode-hint-eligibility" style="display:none">📎 문서 전체(사업계획서·사업자등록증명원 등, 업력·매출·업종·중복지원 여부 등이 담긴 내용)를 <b>"지침·공고문 관리"</b> 탭에 학습된 공고문의 지원자격·제외대상 조항과 대조해 지원 가능 여부를 판정합니다. 학습된 공고문이 없으면 먼저 등록해주세요.</p>
       <p class="muted">⚠️ 구버전 .hwp 파일은 브라우저에서 직접 열 수 없습니다. 한글 프로그램에서 <b>"다른 이름으로 저장 → PDF"</b> 또는 "HWPX"로 저장한 뒤 업로드해주세요.</p>
     </div>
     <div id="review-result"></div>
@@ -239,7 +249,15 @@
 
   <div id="view-guidelines" class="view">
     <div class="card no-print">
-      <h2><span class="h2-icon purple">📚</span> 지침 문서 업로드</h2>
+      <h2><span class="h2-icon purple">📚</span> 지침·공고문 업로드</h2>
+      <div class="row" style="margin-bottom:12px; gap:16px">
+        <label class="row" style="gap:6px; cursor:pointer; font-size:13px">
+          <input type="radio" name="guideline-file-doctype" value="지침" checked /> 📖 운영지침
+        </label>
+        <label class="row" style="gap:6px; cursor:pointer; font-size:13px">
+          <input type="radio" name="guideline-file-doctype" value="공고문" /> 📣 (모집)공고문
+        </label>
+      </div>
       <div class="dropzone">
         <span class="dz-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
           stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5V6a2 2 0 0 1 2-2h8.5L20 8.5V18a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z"/>
@@ -248,15 +266,23 @@
         <button class="primary" id="btn-upload-guideline">업로드 및 학습</button>
         <span class="spinner-inline" id="spinner-g"><span class="spin-ring"></span>처리 중...</span>
       </div>
-      <p class="muted" style="margin-top:12px">사업비 관리지침, 운영지침 등 여러 문서를 순서대로 업로드할 수 있습니다 (누적됩니다). 구버전 .hwp는 PDF/HWPX로 변환 후 업로드하세요.</p>
+      <p class="muted" style="margin-top:12px">사업비 관리지침·운영지침은 "운영지침"으로, 회차별 모집공고문(지원자격·제외대상·지원한도 등)은 "공고문"으로 구분해 업로드하세요. 여러 문서를 순서대로 누적 업로드할 수 있습니다. 구버전 .hwp는 PDF/HWPX로 변환 후 업로드하세요.</p>
     </div>
     <div class="card no-print">
       <h2><span class="h2-icon teal">✏️</span> 텍스트로 직접 학습</h2>
       <p class="muted" style="margin:0 0 10px">파일이 없어도, 조항 내용을 아래에 직접 붙여넣어 학습시킬 수 있습니다 (이메일/공문 본문, 캡처 후 복사한 텍스트 등).</p>
-      <div class="row" style="margin-bottom:8px">
-        <input type="text" id="guideline-text-label" placeholder="문서명 (예: 2026년 사업비 관리지침 제5조)" style="min-width:320px" />
+      <div class="row" style="margin-bottom:8px; gap:16px">
+        <label class="row" style="gap:6px; cursor:pointer; font-size:13px">
+          <input type="radio" name="guideline-text-doctype" value="지침" checked /> 📖 운영지침
+        </label>
+        <label class="row" style="gap:6px; cursor:pointer; font-size:13px">
+          <input type="radio" name="guideline-text-doctype" value="공고문" /> 📣 (모집)공고문
+        </label>
       </div>
-      <textarea id="guideline-text-input" rows="6" placeholder="여기에 지침 조항 내용을 붙여넣으세요..."
+      <div class="row" style="margin-bottom:8px">
+        <input type="text" id="guideline-text-label" placeholder="문서명 (예: 2026년 2차 시드립스 모집공고문)" style="min-width:320px" />
+      </div>
+      <textarea id="guideline-text-input" rows="6" placeholder="여기에 지침·공고문 조항 내용을 붙여넣으세요..."
         style="width:100%; font-size:13px; padding:10px 12px; border:1px solid var(--border); border-radius:var(--radius-sm);
         background:var(--card); color:var(--text); font-family:inherit; resize:vertical;"></textarea>
       <div class="row" style="margin-top:10px">
@@ -265,10 +291,33 @@
     </div>
     <div class="card">
       <div class="row" style="justify-content: space-between;">
-        <h2 style="margin:0"><span class="h2-icon blue">📋</span> 학습된 지침 목록</h2>
+        <h2 style="margin:0"><span class="h2-icon blue">📋</span> 학습된 지침·공고문 목록</h2>
         <button class="ghost" id="btn-clear-guidelines">전체 삭제</button>
       </div>
       <div id="guideline-list"></div>
+    </div>
+  </div>
+
+  <div id="view-qna" class="view">
+    <div class="card no-print">
+      <h2><span class="h2-icon teal">💬</span> 질문하기</h2>
+      <p class="muted" style="margin:0 0 10px">운영사 문의를 학습된 운영지침·공고문에 근거해 1차로 답변합니다. 최종 확인은 담당자가 직접 하세요.</p>
+      <textarea id="qna-question" rows="3" placeholder="예: 이번 차수 공고문 기준으로 업력 5년차 소상공인도 지원 가능한가요?"
+        style="width:100%; font-size:13px; padding:10px 12px; border:1px solid var(--border); border-radius:var(--radius-sm);
+        background:var(--card); color:var(--text); font-family:inherit; resize:vertical;"></textarea>
+      <div class="row" style="margin-top:10px">
+        <input type="text" id="qna-asker" placeholder="질문자/운영사명 (선택 입력, 이력에 표시됩니다)" />
+        <button class="primary" id="btn-ask-qna">질문하기</button>
+        <span class="spinner-inline" id="spinner-qna"><span class="spin-ring"></span>답변 생성 중...</span>
+      </div>
+    </div>
+    <div id="qna-answer"></div>
+    <div class="card">
+      <div class="row" style="justify-content: space-between; flex-wrap:wrap; gap:8px">
+        <h2 style="margin:0"><span class="h2-icon purple">🕘</span> 지난 질문 (FAQ)</h2>
+        <input type="text" id="qna-search" placeholder="지난 질문 검색..." style="min-width:220px" />
+      </div>
+      <div id="qna-list"></div>
     </div>
   </div>
 
@@ -458,8 +507,9 @@ function relevanceScore(query, content) {
   return union ? inter / union : 0;
 }
 
-async function findRelevantGuidelines(query, topK = 5) {
-  const guidelines = await loadGuidelines();
+async function findRelevantGuidelines(query, topK = 5, docTypes = null) {
+  let guidelines = await loadGuidelines();
+  if (docTypes) guidelines = guidelines.filter(g => docTypes.includes(g.doc_type || '지침'));
   return guidelines
     .map(g => [relevanceScore(query, g.content), g])
     .sort((x, y) => y[0] - x[0])
@@ -502,14 +552,15 @@ async function apiPost(action, payload) {
 }
 
 async function loadGuidelines() { return apiGet('list_guidelines'); }
-async function addGuidelineChunks(sourceFile, chunks) {
-  return apiPost('add_guidelines', { source_file: sourceFile, chunks });
+async function addGuidelineChunks(sourceFile, chunks, docType) {
+  return apiPost('add_guidelines', { source_file: sourceFile, chunks, doc_type: docType === '공고문' ? '공고문' : '지침' });
 }
 async function clearGuidelines() { return apiPost('clear_guidelines'); }
 function summarizeGuidelineSources(list) {
   const map = {};
   for (const g of list) {
-    if (!map[g.source_file]) map[g.source_file] = { source_file: g.source_file, n: 0, uploaded_at: g.uploaded_at };
+    const docType = g.doc_type || '지침';
+    if (!map[g.source_file]) map[g.source_file] = { source_file: g.source_file, doc_type: docType, n: 0, uploaded_at: g.uploaded_at };
     map[g.source_file].n++;
     if (g.uploaded_at > map[g.source_file].uploaded_at) map[g.source_file].uploaded_at = g.uploaded_at;
   }
@@ -563,11 +614,15 @@ async function migrateLegacyLocalGuidelinesIfNeeded() {
 }
 
 async function loadSessions() { return apiGet('list_sessions'); }
-async function saveSession(filename, items, usedGuidelines, reviewer) {
-  return apiPost('save_session', { filename, items, usedGuidelines, reviewer });
+async function saveSession(filename, items, usedGuidelines, reviewer, reviewType) {
+  return apiPost('save_session', { filename, items, usedGuidelines, reviewer, review_type: reviewType || 'budget' });
 }
 async function deleteGuidelineSource(sourceFile) {
   return apiPost('delete_guideline_source', { source_file: sourceFile });
+}
+async function loadQna() { return apiGet('list_qna'); }
+async function saveQna(question, answer, usedDocs, askedBy) {
+  return apiPost('save_qna', { question, answer, usedDocs, asked_by: askedBy });
 }
 
 /* ===================== Groq LLM 호출 ===================== */
@@ -641,7 +696,7 @@ reason 작성 규칙 (모든 판정 공통):
 
 function getGroqKey() { return localStorage.getItem(LS_GROQ_KEY) || ''; }
 
-async function callGroq(userPrompt) {
+async function callGroq(userPrompt, systemPrompt) {
   const apiKey = getGroqKey();
   if (!apiKey) throw new Error('Groq API 키가 설정되지 않았습니다. 우측 상단에서 키를 입력해주세요.');
   const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
@@ -652,7 +707,7 @@ async function callGroq(userPrompt) {
       temperature: 0,
       response_format: { type: 'json_object' },
       messages: [
-        { role: 'system', content: SYSTEM_PROMPT },
+        { role: 'system', content: systemPrompt || SYSTEM_PROMPT },
         { role: 'user', content: userPrompt },
       ],
     }),
@@ -698,6 +753,120 @@ async function reviewBusinessPlan(planText) {
   };
 }
 
+/* ===================== 지원요건(자격) 검토 =====================
+   사업비 표가 아니라 문서 전체(사업자 개요·업력·매출·업종 등이 흩어져 있음)를 근거로,
+   학습된 "공고문"의 지원자격/제외대상 조항과 대조해 지원 가능 여부를 판정한다. */
+const ELIGIBILITY_PLAN_MAX_CHARS = 8000;
+
+const SYSTEM_PROMPT_ELIGIBILITY = `당신은 중소벤처기업부 LIPS(혁신 소상공인 투자연계지원) 사업의 주관기관 협약/접수 담당자입니다.
+운영사가 추천하려는 기업의 사업계획서·사업자등록증명원 등에서 추출한 텍스트를 보고, 제공된 [공고문·지침
+근거 조항]에 명시된 지원자격·제외대상·우대사항·지원한도 요건 각각에 대해 이 기업이 해당 요건을
+충족하는지 판정합니다.
+
+문서에서 확인 가능한 요건(예: 업종, 설립일/업력, 매출액, 대표자 자격, 중복지원 이력, 소상공인 확인 여부
+등)마다 하나의 항목으로 판정하세요. [공고문·지침 근거 조항]에 등장하는 요건 중 문서에서 근거를 확인할
+수 없는 항목도 빠뜨리지 말고 "확인필요"로 포함하세요.
+
+반드시 아래 JSON 형식으로만 응답하세요. 다른 텍스트는 출력하지 마세요.
+{
+  "items": [
+    {
+      "item_label": "요건명 (예: 업력 요건, 소상공인 해당 여부, 중복지원 제외대상 해당 여부)",
+      "amount_summary": "문서에서 확인한 해당 기업의 관련 사실 요약 (예: 개업일 2022-03-15, 업력 3년 2개월)",
+      "verdict": "적합" 또는 "수정필요" 또는 "불가" 또는 "확인필요",
+      "reason": "판정 이유. 공고문 근거 조항의 요건과 문서상 사실을 대조해 구체적으로 서술",
+      "guideline_ref": "근거로 삼은 공고문/지침 조항 라벨 (예: '2026년 2차 시드립스 모집공고문 - 지원대상')",
+      "suggestion": "수정필요/불가인 경우 어떤 보완이 필요한지, 확인필요인 경우 담당자가 추가로 무엇을 확인해야 하는지"
+    }
+  ]
+}
+
+판정 기준 (사업비 검토와 다르게, 여기서는 "지원 가능 여부"를 판정합니다):
+- "적합": 문서상 사실이 공고문 요건을 명확히 충족함
+- "수정필요": 원칙적으로 지원 가능하나 서류 보완·추가 확인·요건 일부 조정이 필요함
+- "불가": 공고문상 제외대상에 해당하거나 필수 요건을 명백히 충족하지 못함 (지원 불가)
+- "확인필요": 문서에서 해당 요건을 판단할 근거 사실을 찾지 못했거나, 공고문 조항 자체가 해석의 여지가 있음
+당신은 보수적으로 판단해야 합니다. 확신이 없으면 "적합"으로 임의 처리하지 말고 "확인필요"로 분류하세요.
+이 도구는 접수 담당자의 1차 필터일 뿐 최종 승인이 아닙니다.`;
+
+async function reviewEligibility(planText) {
+  const notices = await loadGuidelines();
+  if (!notices.some(g => (g.doc_type || '지침') === '공고문')) {
+    throw new Error('학습된 공고문이 없습니다. 먼저 "지침·공고문 관리" 탭에서 이번 차수 모집공고문을 "공고문"으로 업로드해 학습시켜 주세요.');
+  }
+  const clipped = planText.trim().slice(0, ELIGIBILITY_PLAN_MAX_CHARS);
+  const relevantNotices = await findRelevantGuidelines(clipped, 6, ['공고문']);
+  const relevantGuides = await findRelevantGuidelines(clipped, 3, ['지침']);
+  const relevant = [...relevantNotices, ...relevantGuides];
+  const guidelineBlock = relevant.length
+    ? relevant.map(g => `[${g.label}]\n${g.content.slice(0, 1500)}`).join('\n\n')
+    : '(관련 공고문/지침 조항을 찾지 못했습니다)';
+  const userPrompt = `[공고문·지침 근거 조항]\n${guidelineBlock}\n\n[기업 제출 문서 (추출된 원문, 일부)]\n${clipped}\n`;
+  let parsed;
+  try {
+    parsed = await callGroq(userPrompt, SYSTEM_PROMPT_ELIGIBILITY);
+  } catch (e) {
+    throw new Error(`지원요건 검토 중 오류 발생: ${e.message}`);
+  }
+  const items = Array.isArray(parsed.items) ? parsed.items : [];
+  if (!items.length) {
+    throw new Error('지원요건 항목을 판정하지 못했습니다. 문서 추출 상태 또는 학습된 공고문 내용을 확인해주세요.');
+  }
+  return {
+    items: items.map(it => ({
+      item_label: it.item_label || '(요건명 미상)',
+      item_content: it.amount_summary || '',
+      verdict: it.verdict || '확인필요',
+      reason: it.reason || '',
+      guideline_ref: it.guideline_ref || '',
+      suggestion: it.suggestion || '',
+    })),
+    usedGuidelines: relevant.map(g => ({ label: g.label, content: g.content })),
+  };
+}
+
+/* ===================== Q&A (운영사 문의 1차 응답) ===================== */
+const SYSTEM_PROMPT_QNA = `당신은 중소벤처기업부 LIPS(혁신 소상공인 투자연계지원) 사업의 주관기관 담당자입니다.
+민간 운영사가 지침·공고문 내용에 대해 질문하면, 아래 [참고 지침·공고문 조항]에 근거해서만 답변하세요.
+
+- 근거 조항에 명시되지 않은 내용은 추측하지 말고, "제공된 지침·공고문에 명시되어 있지 않아 담당자
+  확인이 필요합니다"라고 솔직히 답변하세요.
+- 답변은 실무자가 바로 이해할 수 있도록 간결한 한국어 존댓말로, 근거 조항의 문장·숫자를 인용하며
+  구체적으로 작성하세요.
+- 이 답변은 1차 참고 답변이며 최종 유권해석이 아님을 인지하고, 애매하거나 중요한 판단이 걸린 질문은
+  confidence를 "낮음"으로 낮추고 note에 담당자 확인을 권고하세요.
+
+반드시 아래 JSON 형식으로만 응답하세요. 다른 텍스트는 출력하지 마세요.
+{
+  "answer": "질문에 대한 답변",
+  "confidence": "높음" 또는 "보통" 또는 "낮음",
+  "note": "확인이 필요한 경우 안내 문구 (없으면 빈 문자열)"
+}`;
+
+async function askQuestion(question) {
+  const all = await loadGuidelines();
+  if (!all.length) {
+    throw new Error('학습된 지침·공고문이 없습니다. 먼저 "지침·공고문 관리" 탭에서 문서를 업로드해 학습시켜 주세요.');
+  }
+  const relevant = await findRelevantGuidelines(question, 8);
+  const guidelineBlock = relevant.length
+    ? relevant.map(g => `[${g.label}] (${g.doc_type || '지침'})\n${g.content.slice(0, 1500)}`).join('\n\n')
+    : '(관련 지침·공고문 조항을 찾지 못했습니다)';
+  const userPrompt = `[참고 지침·공고문 조항]\n${guidelineBlock}\n\n[질문]\n${question}\n`;
+  let parsed;
+  try {
+    parsed = await callGroq(userPrompt, SYSTEM_PROMPT_QNA);
+  } catch (e) {
+    throw new Error(`답변 생성 중 오류 발생: ${e.message}`);
+  }
+  return {
+    answer: parsed.answer || '답변을 생성하지 못했습니다.',
+    confidence: parsed.confidence || '보통',
+    note: parsed.note || '',
+    usedGuidelines: relevant.map(g => ({ label: g.label, content: g.content })),
+  };
+}
+
 /* ===================== 드래그 앤 드롭 업로드 ===================== */
 function enableDropzone(dropzoneEl, inputEl) {
   ['dragenter', 'dragover'].forEach(evt => dropzoneEl.addEventListener(evt, e => {
@@ -731,6 +900,15 @@ document.querySelectorAll('nav .tab').forEach(btn => {
     $('#view-' + btn.dataset.view).classList.add('active');
     if (btn.dataset.view === 'guidelines') refreshGuidelinesView();
     if (btn.dataset.view === 'history') refreshHistoryView();
+    if (btn.dataset.view === 'qna') refreshQnaView();
+  });
+});
+
+document.querySelectorAll('input[name="review-mode"]').forEach(radio => {
+  radio.addEventListener('change', () => {
+    const eligibility = $('#mode-eligibility').checked;
+    $('#mode-hint-budget').style.display = eligibility ? 'none' : '';
+    $('#mode-hint-eligibility').style.display = eligibility ? '' : 'none';
   });
 });
 
@@ -837,6 +1015,7 @@ $('#btn-review').addEventListener('click', async () => {
   if (!fileInput.files.length) { alert('사업계획서 파일을 선택하세요.'); return; }
   const files = Array.from(fileInput.files);
   const reviewer = getReviewerName();
+  const reviewType = $('#mode-eligibility').checked ? 'eligibility' : 'budget';
   const btn = $('#btn-review');
   btn.disabled = true;
   $('#spinner').classList.add('show');
@@ -853,11 +1032,13 @@ $('#btn-review').addEventListener('click', async () => {
     try {
       const text = await extractText(file);
       if (!text.trim()) throw new Error('문서에서 텍스트를 추출하지 못했습니다.');
-      const { items, usedGuidelines } = await reviewBusinessPlan(text);
+      const { items, usedGuidelines } = reviewType === 'eligibility'
+        ? await reviewEligibility(text)
+        : await reviewBusinessPlan(text);
       const createdAt = new Date().toISOString();
       card.innerHTML = renderResultTable(items, { usedGuidelines, meta: { filename: file.name, reviewer, created_at: createdAt } });
       try {
-        await saveSession(file.name, items, usedGuidelines, reviewer);
+        await saveSession(file.name, items, usedGuidelines, reviewer, reviewType);
       } catch (e) {
         card.insertAdjacentHTML('afterbegin', `<div class="card warn-box no-print">⚠️ 검토 결과는 정상이지만 이력 저장에 실패했습니다: ${escapeHtml(e.message)}</div>`);
       }
@@ -878,10 +1059,11 @@ $('#btn-upload-guideline').addEventListener('click', async () => {
   $('#spinner-g').classList.add('show');
   try {
     const file = fileInput.files[0];
+    const docType = document.querySelector('input[name="guideline-file-doctype"]:checked').value;
     const text = await extractText(file);
     const chunks = splitGuidelineSections(text);
     if (!chunks.length) throw new Error('문서에서 텍스트를 추출하지 못했습니다.');
-    await addGuidelineChunks(file.name, chunks);
+    await addGuidelineChunks(file.name, chunks, docType);
     fileInput.value = '';
     await refreshGuidelinesView();
   } catch (e) {
@@ -898,12 +1080,13 @@ $('#btn-add-guideline-text').addEventListener('click', async () => {
   const text = textInput.value.trim();
   if (!text) { alert('학습시킬 내용을 입력하세요.'); return; }
   const label = labelInput.value.trim() || `직접 입력 (${new Date().toLocaleString()})`;
+  const docType = document.querySelector('input[name="guideline-text-doctype"]:checked').value;
   const chunks = splitGuidelineSections(text);
   if (!chunks.length) { alert('내용에서 학습할 조항을 찾지 못했습니다.'); return; }
   const btn = $('#btn-add-guideline-text');
   btn.disabled = true;
   try {
-    await addGuidelineChunks(label, chunks);
+    await addGuidelineChunks(label, chunks, docType);
     textInput.value = '';
     labelInput.value = '';
     await refreshGuidelinesView();
@@ -948,8 +1131,10 @@ async function refreshGuidelinesView() {
       </svg>아직 업로드된 지침이 없습니다.</div>`;
     return;
   }
-  list.innerHTML = `<div class="table-wrap"><table><thead><tr><th>출처</th><th>조항 수</th><th>업로드 시각</th><th></th></tr></thead><tbody>` +
-    sources.map(s => `<tr><td>${escapeHtml(s.source_file)}</td><td>${s.n}</td><td class="muted">${escapeHtml(new Date(s.uploaded_at).toLocaleString())}</td>
+  const docTypeBadge = dt => dt === '공고문'
+    ? `<span class="badge 확인필요">📣 공고문</span>` : `<span class="badge 적합">📖 지침</span>`;
+  list.innerHTML = `<div class="table-wrap"><table><thead><tr><th>구분</th><th>출처</th><th>조항 수</th><th>업로드 시각</th><th></th></tr></thead><tbody>` +
+    sources.map(s => `<tr><td>${docTypeBadge(s.doc_type)}</td><td>${escapeHtml(s.source_file)}</td><td>${s.n}</td><td class="muted">${escapeHtml(new Date(s.uploaded_at).toLocaleString())}</td>
       <td><button class="link-btn btn-delete-source" data-source="${escapeHtml(s.source_file)}">삭제</button></td></tr>`).join('') +
     `</tbody></table></div>`;
   list.querySelectorAll('.btn-delete-source').forEach(btn => {
@@ -984,8 +1169,10 @@ async function refreshHistoryView() {
       </svg>검토 이력이 없습니다.</div>`;
     return;
   }
-  list.innerHTML = `<div class="table-wrap"><table><thead><tr><th>파일명</th><th>검토자</th><th>검토 시각</th><th></th></tr></thead><tbody>` +
-    sessions.map(s => `<tr><td>${escapeHtml(s.filename)}</td><td class="muted">${escapeHtml(s.reviewer || '-')}</td><td class="muted">${escapeHtml(new Date(s.created_at).toLocaleString())}</td>
+  const typeBadge = t => t === 'eligibility'
+    ? `<span class="badge 확인필요">✅ 지원요건</span>` : `<span class="badge 적합">🧾 사업비</span>`;
+  list.innerHTML = `<div class="table-wrap"><table><thead><tr><th>구분</th><th>파일명</th><th>검토자</th><th>검토 시각</th><th></th></tr></thead><tbody>` +
+    sessions.map(s => `<tr><td>${typeBadge(s.review_type)}</td><td>${escapeHtml(s.filename)}</td><td class="muted">${escapeHtml(s.reviewer || '-')}</td><td class="muted">${escapeHtml(new Date(s.created_at).toLocaleString())}</td>
       <td><button class="link-btn" data-session="${s.id}">결과 보기</button></td></tr>`).join('') +
     `</tbody></table></div>`;
   list.querySelectorAll('[data-session]').forEach(btn => {
@@ -998,6 +1185,109 @@ async function refreshHistoryView() {
     });
   });
 }
+
+/* ===================== Q&A (운영사 문의 1차 응답) UI ===================== */
+const QNA_CONFIDENCE_BADGE = { '높음': '적합', '보통': '확인필요', '낮음': '수정필요' };
+
+function renderQnaGuidelineRefs(usedGuidelines) {
+  if (!usedGuidelines || !usedGuidelines.length) return '';
+  return `<details class="guideline-refs">
+    <summary class="link-btn">📖 이 답변에 사용된 지침·공고문 원문 보기 (${usedGuidelines.length}개)</summary>
+    <div class="row" style="flex-direction:column; align-items:stretch; gap:10px; margin-top:10px">
+      ${usedGuidelines.map(g => `<div class="guideline-ref-card">
+        <div class="g-label">${escapeHtml(g.label)}</div>
+        <div class="g-content">${escapeHtml(g.content)}</div>
+      </div>`).join('')}
+    </div>
+  </details>`;
+}
+
+function renderQnaCard(entry) {
+  const badgeClass = QNA_CONFIDENCE_BADGE[entry.confidence] || '확인필요';
+  const metaLine = [entry.asked_by, entry.created_at ? new Date(entry.created_at).toLocaleString() : '']
+    .filter(Boolean).map(escapeHtml).join(' · ');
+  return `<div class="card">
+    <div class="result-meta" style="margin-bottom:10px">${metaLine}</div>
+    <p style="margin:0 0 10px; font-weight:700">Q. ${escapeHtml(entry.question)}</p>
+    <p style="margin:0 0 10px; white-space:pre-wrap">${escapeHtml(entry.answer)}</p>
+    <span class="badge ${badgeClass}">신뢰도: ${escapeHtml(entry.confidence || '보통')}</span>
+    ${entry.note ? `<p class="muted" style="margin-top:8px">⚠️ ${escapeHtml(entry.note)}</p>` : ''}
+    ${renderQnaGuidelineRefs(entry.usedGuidelines || entry.usedDocs)}
+  </div>`;
+}
+
+$('#btn-ask-qna').addEventListener('click', async () => {
+  const questionInput = $('#qna-question');
+  const question = questionInput.value.trim();
+  if (!question) { alert('질문을 입력하세요.'); return; }
+  const askedBy = $('#qna-asker').value.trim();
+  const btn = $('#btn-ask-qna');
+  btn.disabled = true;
+  $('#spinner-qna').classList.add('show');
+  $('#qna-answer').innerHTML = '';
+  try {
+    const result = await askQuestion(question);
+    $('#qna-answer').innerHTML = renderQnaCard({
+      question, answer: result.answer, confidence: result.confidence, note: result.note,
+      usedGuidelines: result.usedGuidelines, created_at: new Date().toISOString(), asked_by: askedBy,
+    });
+    try {
+      await saveQna(question, result.answer, result.usedGuidelines, askedBy);
+      questionInput.value = '';
+      await refreshQnaView();
+    } catch (e) {
+      $('#qna-answer').insertAdjacentHTML('beforeend', `<div class="card warn-box no-print">⚠️ 답변은 정상이지만 이력 저장에 실패했습니다: ${escapeHtml(e.message)}</div>`);
+    }
+  } catch (e) {
+    $('#qna-answer').innerHTML = `<div class="card err-box">답변 생성 중 오류: ${escapeHtml(e.message)}</div>`;
+  } finally {
+    btn.disabled = false;
+    $('#spinner-qna').classList.remove('show');
+  }
+});
+
+let qnaHistoryCache = [];
+function renderQnaList(entries) {
+  const list = $('#qna-list');
+  if (!entries.length) {
+    list.innerHTML = `<div class="empty">아직 등록된 질문이 없습니다.</div>`;
+    return;
+  }
+  list.innerHTML = `<div class="table-wrap"><table><thead><tr><th>질문</th><th>질문자</th><th>시각</th><th></th></tr></thead><tbody>` +
+    entries.map(e => `<tr><td>${escapeHtml(e.question).slice(0, 80)}</td><td class="muted">${escapeHtml(e.asked_by || '-')}</td>
+      <td class="muted">${escapeHtml(new Date(e.created_at).toLocaleString())}</td>
+      <td><button class="link-btn" data-qna="${e.id}">답변 보기</button></td></tr>`).join('') +
+    `</tbody></table></div>`;
+  list.querySelectorAll('[data-qna]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const entry = entries.find(e => e.id === btn.dataset.qna);
+      $('#qna-answer').innerHTML = renderQnaCard(entry);
+    });
+  });
+}
+
+async function refreshQnaView() {
+  const list = $('#qna-list');
+  list.innerHTML = `<div class="empty">불러오는 중...</div>`;
+  try {
+    qnaHistoryCache = await loadQna();
+  } catch (e) {
+    list.innerHTML = `<div class="card err-box">지난 질문을 불러오지 못했습니다: ${escapeHtml(e.message)}</div>`;
+    return;
+  }
+  renderQnaList(qnaHistoryCache);
+}
+
+$('#qna-search').addEventListener('input', () => {
+  const q = $('#qna-search').value.trim();
+  if (!q) { renderQnaList(qnaHistoryCache); return; }
+  const matches = qnaHistoryCache
+    .map(e => [Math.max(relevanceScore(q, e.question), e.question.includes(q) ? 1 : 0), e])
+    .filter(x => x[0] > 0)
+    .sort((x, y) => y[0] - x[0])
+    .map(x => x[1]);
+  renderQnaList(matches);
+});
 
 /* ===================== Groq API 키 설정 ===================== */
 function renderKeyBox() {

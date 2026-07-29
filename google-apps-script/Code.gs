@@ -20,14 +20,18 @@
  * 웹 앱 URL이 바뀌지 않는다.
  */
 
-const GUIDELINES_HEADERS = ['id', 'source_file', 'label', 'content', 'uploaded_at'];
-const SESSIONS_HEADERS = ['id', 'filename', 'created_at', 'items_json', 'reviewer'];
+// doc_type/review_type은 기존 배포에 나중에 추가된 컬럼이라 맨 끝에 붙인다 (getSheet_가
+// 기존 탭 헤더 뒤에만 이어붙이므로, 앞쪽에 넣으면 이미 저장된 행과 컬럼이 어긋난다).
+const GUIDELINES_HEADERS = ['id', 'source_file', 'label', 'content', 'uploaded_at', 'doc_type'];
+const SESSIONS_HEADERS = ['id', 'filename', 'created_at', 'items_json', 'reviewer', 'review_type'];
+const QNA_HEADERS = ['id', 'question', 'answer', 'used_docs_json', 'asked_by', 'created_at'];
 
-// 'Sessions'/'Guidelines' 탭을 실수로 수동 편집/삭제해도 데이터를 복구할 수 있도록,
+// 'Sessions'/'Guidelines'/'QnA' 탭을 실수로 수동 편집/삭제해도 데이터를 복구할 수 있도록,
 // 저장할 때마다 별도의 보관용(Archive) 탭에도 같은 행을 추가로 남긴다. 이 탭은 화면 어디서도
 // 읽지 않으므로 평소에 열어볼 일이 없어 실수로 지워질 위험이 낮다.
 const SESSIONS_ARCHIVE_SHEET = 'Sessions_Archive';
 const GUIDELINES_ARCHIVE_SHEET = 'Guidelines_Archive';
+const QNA_ARCHIVE_SHEET = 'QnA_Archive';
 
 function getSheet_(name, headers) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -56,6 +60,7 @@ function doGet(e) {
   try {
     if (action === 'list_guidelines') return json_(listGuidelines_());
     if (action === 'list_sessions') return json_(listSessions_());
+    if (action === 'list_qna') return json_(listQna_());
     if (action === 'setup_protection') return json_(protectAgainstManualEdits_());
     return json_({ error: '알 수 없는 action: ' + action });
   } catch (err) {
@@ -77,6 +82,8 @@ function doPost(e) {
     if (action === 'save_session') return json_(saveSession_(body));
     if (action === 'delete_session') return json_(deleteSession_(body));
     if (action === 'delete_guideline_source') return json_(deleteGuidelineSource_(body));
+    if (action === 'save_qna') return json_(saveQna_(body));
+    if (action === 'delete_qna') return json_(deleteQna_(body));
     return json_({ error: '알 수 없는 action: ' + action });
   } catch (err) {
     return json_({ error: String(err) });
@@ -87,7 +94,8 @@ function listGuidelines_() {
   const sh = getSheet_('Guidelines', GUIDELINES_HEADERS);
   const rows = sh.getDataRange().getValues().slice(1).filter(r => r[0]);
   return rows.map(r => ({
-    id: r[0], source_file: r[1], label: r[2], content: r[3], uploaded_at: r[4],
+    // doc_type이 없는 옛 행(이 기능 추가 이전에 저장됨)은 전부 '지침' 업로드였으므로 그렇게 간주한다.
+    id: r[0], source_file: r[1], label: r[2], content: r[3], uploaded_at: r[4], doc_type: r[5] || '지침',
   }));
 }
 
@@ -95,7 +103,8 @@ function addGuidelines_(body) {
   const sh = getSheet_('Guidelines', GUIDELINES_HEADERS);
   const uploadedAt = new Date().toISOString();
   const chunks = body.chunks || [];
-  const rows = chunks.map(c => [Utilities.getUuid(), body.source_file, c[0], c[1], uploadedAt]);
+  const docType = body.doc_type === '공고문' ? '공고문' : '지침';
+  const rows = chunks.map(c => [Utilities.getUuid(), body.source_file, c[0], c[1], uploadedAt, docType]);
   if (rows.length) {
     sh.getRange(sh.getLastRow() + 1, 1, rows.length, GUIDELINES_HEADERS.length).setValues(rows);
     appendArchiveRows_(GUIDELINES_ARCHIVE_SHEET, GUIDELINES_HEADERS, rows);
@@ -119,7 +128,8 @@ function listSessions_() {
     try { payload = JSON.parse(r[3] || '{}'); } catch (e) { payload = {}; }
     const items = Array.isArray(payload) ? payload : (payload.items || []);
     const usedGuidelines = Array.isArray(payload) ? [] : (payload.usedGuidelines || []);
-    return { id: r[0], filename: r[1], created_at: r[2], items, usedGuidelines, reviewer: r[4] || '' };
+    // review_type이 없는 옛 행(이 기능 추가 이전에 저장됨)은 전부 사업비 집행 검토였다.
+    return { id: r[0], filename: r[1], created_at: r[2], items, usedGuidelines, reviewer: r[4] || '', review_type: r[5] || 'budget' };
   });
   sessions.sort((a, b) => b.created_at.localeCompare(a.created_at));
   return sessions;
@@ -141,7 +151,7 @@ function saveSession_(body) {
   const id = Utilities.getUuid();
   const createdAt = new Date().toISOString();
   const itemsJson = JSON.stringify({ items: body.items || [], usedGuidelines: body.usedGuidelines || [] });
-  const row = [id, body.filename, createdAt, itemsJson, body.reviewer || ''];
+  const row = [id, body.filename, createdAt, itemsJson, body.reviewer || '', body.review_type === 'eligibility' ? 'eligibility' : 'budget'];
   sh.appendRow(row);
   appendArchiveRows_(SESSIONS_ARCHIVE_SHEET, SESSIONS_HEADERS, [row]);
   return { id: id, created_at: createdAt };
@@ -156,6 +166,40 @@ function deleteGuidelineSource_(body) {
     if (data[i][1] === body.source_file) { sh.deleteRow(i + 1); deleted++; }
   }
   return { ok: true, deleted: deleted };
+}
+
+function listQna_() {
+  const sh = getSheet_('QnA', QNA_HEADERS);
+  const rows = sh.getDataRange().getValues().slice(1).filter(r => r[0]);
+  const list = rows.map(r => {
+    let usedDocs;
+    try { usedDocs = JSON.parse(r[3] || '[]'); } catch (e) { usedDocs = []; }
+    return { id: r[0], question: r[1], answer: r[2], usedDocs: usedDocs, asked_by: r[4] || '', created_at: r[5] };
+  });
+  list.sort((a, b) => b.created_at.localeCompare(a.created_at));
+  return list;
+}
+
+function saveQna_(body) {
+  const sh = getSheet_('QnA', QNA_HEADERS);
+  const id = Utilities.getUuid();
+  const createdAt = new Date().toISOString();
+  const usedDocsJson = JSON.stringify(body.usedDocs || []);
+  const row = [id, body.question || '', body.answer || '', usedDocsJson, body.asked_by || '', createdAt];
+  sh.appendRow(row);
+  appendArchiveRows_(QNA_ARCHIVE_SHEET, QNA_HEADERS, [row]);
+  return { id: id, created_at: createdAt };
+}
+
+/* 잘못 저장된 질문(테스트/오류 데이터) 정리용. UI에는 연결하지 않은 유지보수용 액션 —
+   Sessions의 delete_session과 동일하게 Archive 탭에는 남겨두고 원본 'QnA' 탭에서만 지운다. */
+function deleteQna_(body) {
+  const sh = getSheet_('QnA', QNA_HEADERS);
+  const data = sh.getDataRange().getValues();
+  for (let i = data.length - 1; i >= 1; i--) {
+    if (data[i][0] === body.id) { sh.deleteRow(i + 1); return { ok: true, deleted: 1 }; }
+  }
+  return { ok: true, deleted: 0 };
 }
 
 /* ===================== 보관용(Archive) 백업 =====================
@@ -186,8 +230,10 @@ function restoreSessionsFromArchive_() {
    셀을 지우거나 편집하려 할 때 확인 창이 한 번 더 뜨도록 한다(소유자도 예외 없이 적용).
    여러 번 실행해도 중복 보호가 걸리지 않도록 기존 보호가 있으면 건너뛴다. */
 function protectAgainstManualEdits_() {
-  ['Guidelines', 'Sessions', GUIDELINES_ARCHIVE_SHEET, SESSIONS_ARCHIVE_SHEET].forEach(name => {
-    const headers = (name === 'Guidelines' || name === GUIDELINES_ARCHIVE_SHEET) ? GUIDELINES_HEADERS : SESSIONS_HEADERS;
+  ['Guidelines', 'Sessions', 'QnA', GUIDELINES_ARCHIVE_SHEET, SESSIONS_ARCHIVE_SHEET, QNA_ARCHIVE_SHEET].forEach(name => {
+    let headers = SESSIONS_HEADERS;
+    if (name === 'Guidelines' || name === GUIDELINES_ARCHIVE_SHEET) headers = GUIDELINES_HEADERS;
+    else if (name === 'QnA' || name === QNA_ARCHIVE_SHEET) headers = QNA_HEADERS;
     const sh = getSheet_(name, headers);
     const already = sh.getProtections(SpreadsheetApp.ProtectionType.SHEET);
     if (already.length) return;
