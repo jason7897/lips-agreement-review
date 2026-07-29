@@ -7,3 +7,8 @@ review.db
 test_out.txt
 test_html_out/
 help_out.txt
+node_modules/
+test-results/
+playwright-report/
+blob-report/
+playwright/.cache/

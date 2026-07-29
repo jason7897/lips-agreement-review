@@ -28,6 +28,7 @@ const QNA_HEADERS = ['id', 'question', 'answer', 'used_docs_json', 'asked_by', '
 const GUIDELINE_DOC_TYPES = ['지침', '공고문', '사례'];
 const SESSION_STATUSES = ['대기', '승인', '반려'];
 const ITEM_FEEDBACK_HEADERS = ['id', 'session_id', 'item_label', 'feedback', 'created_at'];
+const ERROR_LOG_HEADERS = ['id', 'context', 'message', 'created_at'];
 
 // 드라이브 일괄 검토에서 한 파일당 이만큼(바이트)까지만 가져온다 - 너무 큰 스캔본 PDF가 Apps Script
 // 응답 크기/실행시간 한도를 넘기지 않도록 하는 안전장치. 더 큰 파일은 수동 업로드를 안내한다.
@@ -73,6 +74,7 @@ function doGet(e) {
     if (action === 'list_qna') return json_(listQna_());
     if (action === 'list_guideline_archive') return json_(listGuidelineArchive_(e.parameter.source_file || ''));
     if (action === 'list_item_feedback') return json_(listItemFeedback_());
+    if (action === 'list_error_log') return json_(listErrorLog_());
     if (action === 'list_drive_companies') return json_(listDriveCompanies_(e.parameter.folder_id || ''));
     if (action === 'get_drive_file') return json_(getDriveFileBase64_(e.parameter.file_id || ''));
     if (action === 'setup_protection') return json_(protectAgainstManualEdits_());
@@ -102,6 +104,8 @@ function doPost(e) {
     if (action === 'update_session_status') return json_(updateSessionStatus_(body));
     if (action === 'save_item_feedback') return json_(saveItemFeedback_(body));
     if (action === 'delete_item_feedback') return json_(deleteItemFeedback_(body));
+    if (action === 'log_error') return json_(logError_(body));
+    if (action === 'delete_error_log') return json_(deleteErrorLog_(body));
     return json_({ error: '알 수 없는 action: ' + action });
   } catch (err) {
     return json_({ error: String(err) });
@@ -211,6 +215,34 @@ function saveItemFeedback_(body) {
 /* 잘못 저장된 피드백(테스트 등) 정리용. UI에는 연결하지 않은 유지보수용 액션. */
 function deleteItemFeedback_(body) {
   const sh = getSheet_('ItemFeedback', ITEM_FEEDBACK_HEADERS);
+  const data = sh.getDataRange().getValues();
+  for (let i = data.length - 1; i >= 1; i--) {
+    if (data[i][0] === body.id) { sh.deleteRow(i + 1); return { ok: true, deleted: 1 }; }
+  }
+  return { ok: true, deleted: 0 };
+}
+
+/* 브라우저에서 조용히 실패하던 오류(Groq 호출 실패, 임베딩 로드 실패 등)를 여기에 기록해
+   담당자가 통계 탭에서 확인할 수 있게 한다. 로깅 자체가 실패해도 원래 기능엔 영향 없도록
+   클라이언트에서 fire-and-forget으로 호출한다 - 그래서 이 로그도 저위험 append-only로 취급. */
+function listErrorLog_() {
+  const sh = getSheet_('ErrorLog', ERROR_LOG_HEADERS);
+  const rows = sh.getDataRange().getValues().slice(1).filter(r => r[0]);
+  return rows.map(r => ({ id: r[0], context: r[1], message: r[2], created_at: r[3] }))
+    .sort((a, b) => b.created_at.localeCompare(a.created_at));
+}
+
+function logError_(body) {
+  const sh = getSheet_('ErrorLog', ERROR_LOG_HEADERS);
+  const id = Utilities.getUuid();
+  const createdAt = new Date().toISOString();
+  sh.appendRow([id, String(body.context || '').slice(0, 200), String(body.message || '').slice(0, 2000), createdAt]);
+  return { id: id, created_at: createdAt };
+}
+
+/* 잘못 기록된 로그(테스트 등) 정리용. UI에는 연결하지 않은 유지보수용 액션. */
+function deleteErrorLog_(body) {
+  const sh = getSheet_('ErrorLog', ERROR_LOG_HEADERS);
   const data = sh.getDataRange().getValues();
   for (let i = data.length - 1; i >= 1; i--) {
     if (data[i][0] === body.id) { sh.deleteRow(i + 1); return { ok: true, deleted: 1 }; }

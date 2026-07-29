@@ -474,10 +474,14 @@ async function extractPdfPageTexts(file) {
 
 // PDF 한정 - 판정 항목(item_label+item_content)과 가장 비슷한 페이지를 bigram 유사도로 추정해
 // source_page를 붙인다. 어디까지나 추정치이며, HWPX나 매칭 실패 항목은 그대로 둔다.
+const SOURCE_PAGE_HINT_TIMEOUT_MS = 10000;
+
 async function attachSourcePageHints(file, items) {
   if (!file.name.toLowerCase().endsWith('.pdf')) return items;
   let pages;
-  try { pages = await extractPdfPageTexts(file); } catch (e) { return items; }
+  // pdf.js가 손상되었거나 스캔 상태가 나쁜 PDF에서 거부(reject)하지 않고 멈춰버리는 경우를
+  // 실제로 관찰했다 - 이 힌트는 어디까지나 부가 기능이므로 시간 초과 시 조용히 건너뛴다.
+  try { pages = await withTimeout(extractPdfPageTexts(file), SOURCE_PAGE_HINT_TIMEOUT_MS, 'PDF 페이지 추출'); } catch (e) { return items; }
   if (!pages.length) return items;
   return items.map(it => {
     const query = `${it.item_label} ${it.item_content}`.trim();
@@ -638,14 +642,18 @@ async function findRelevantGuidelines(query, topK = 5, docTypes = null, programT
     .map(x => x[1]);
 }
 
-/* ===================== 의미 기반 검색 (임베딩, 무료 브라우저 로컬 모델) =====================
-   bigram 자카드는 "업력"과 "설립연도" 같은 동의어를 못 잡는 한계가 있다. transformers.js로
-   작은 임베딩 모델을 브라우저에서 직접 돌려(서버·API 키 불필요, 최초 1회만 모델을 CDN에서
-   내려받아 브라우저에 캐시) 의미 유사도로 검색하고, 모델 로드/추론이 실패하면(네트워크 차단,
-   구형 브라우저 등) 위 bigram 검색으로 자동 폴백한다. */
+/* ===================== 의미 기반 검색 (임베딩, 현재 비활성화) =====================
+   bigram 자카드는 "업력"과 "설립연도" 같은 동의어를 못 잡는 한계가 있어, transformers.js로
+   브라우저에서 직접 임베딩 검색을 시도하도록 만들었었다.
+   ⚠️ 2026-07-29 Playwright로 실제 브라우저에서 처음 검증하다가, 모델(WASM/ONNX) 로딩이
+   메인 스레드를 동기적으로 오래 막아버릴 수 있어 Promise.race 기반 타임아웃으로는 구제가
+   안 되는(화면이 통째로 멈추는) 경우를 실제로 재현했다. 그래서 아래 함수들은 정의만 남겨두고
+   findRelevant/findSimilarQna에서는 호출하지 않는다 - bigram 검색만 사용한다.
+   제대로 고치려면 이 로직을 Web Worker로 옮겨서 메인 스레드와 분리해야 한다(다음 작업 후보). */
 const EMBED_MODEL_ID = 'Xenova/all-MiniLM-L6-v2';
 const LS_EMBED_CACHE = 'lips_embed_cache_v1';
 let _embedderPromise = null;
+const EMBEDDER_LOAD_TIMEOUT_MS = 8000;
 
 function getEmbedder() {
   if (!_embedderPromise) {
@@ -656,6 +664,18 @@ function getEmbedder() {
     })();
   }
   return _embedderPromise;
+}
+
+// CDN이 차단된 네트워크(사내 방화벽 등)에서는 import()가 실패하지 않고 그냥 무한정 멈춰있을 수
+// 있음을 실제로 확인했다 - 이 경우 아래 타임아웃이 없으면 검토/Q&A 전체가 영영 멈춘다.
+// 원본 프로미스는 취소되지 않고 백그라운드에서 계속 기다리므로, 나중에 실제로 로드되면 이후
+// 호출부터는 정상적으로 의미 기반 검색을 쓸 수 있다.
+function withTimeout(promise, ms, label) {
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`${label} 시간 초과(${ms}ms) - 네트워크가 느리거나 CDN이 차단됐을 수 있습니다`)), ms);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
 }
 
 async function embedText(embedder, text) {
@@ -680,7 +700,7 @@ async function findRelevantSemantic(query, topK, docTypes, programTag) {
   if (docTypes) guidelines = guidelines.filter(g => docTypes.includes(g.doc_type || '지침'));
   if (programTag) guidelines = guidelines.filter(g => programTagMatches(g, programTag));
   if (!guidelines.length) return [];
-  const embedder = await getEmbedder();
+  const embedder = await withTimeout(getEmbedder(), EMBEDDER_LOAD_TIMEOUT_MS, '임베딩 모델 로드');
   const cache = loadEmbedCache();
   let cacheDirty = false;
   for (const g of guidelines) {
@@ -698,14 +718,10 @@ async function findRelevantSemantic(query, topK, docTypes, programTag) {
     .map(x => x[1]);
 }
 
-// 검토/Q&A 전 구간의 단일 검색 진입점 - 의미 기반 검색을 우선 시도하고, 실패하면 bigram으로 대체한다.
+// 검토/Q&A 전 구간의 단일 검색 진입점. findRelevantSemantic(임베딩)은 메인 스레드를 멈출 위험이
+// 확인되어 현재 호출하지 않고, 항상 bigram 검색만 사용한다 - 위 섹션 설명 참고.
 async function findRelevant(query, topK, docTypes, programTag) {
-  try {
-    return await findRelevantSemantic(query, topK, docTypes, programTag);
-  } catch (e) {
-    console.warn('의미 기반 검색 실패 - bigram 검색으로 대체합니다:', e);
-    return await findRelevantGuidelines(query, topK, docTypes, programTag);
-  }
+  return await findRelevantGuidelines(query, topK, docTypes, programTag);
 }
 
 /* ===================== 공유 백엔드 (Google Apps Script + 시트) =====================
@@ -828,6 +844,13 @@ async function saveItemFeedback(sessionId, itemLabel, feedback) {
 async function loadItemFeedback() { return apiGet('list_item_feedback'); }
 async function loadDriveCompanies(folderId) { return apiGet('list_drive_companies', { folder_id: folderId }); }
 async function getDriveFile(fileId) { return apiGet('get_drive_file', { file_id: fileId }); }
+
+// 실패해도 사용자 흐름을 막지 않는 진단 로그 - 실패 자체도 그냥 무시한다(로깅이 로깅을 실패시키면 안 됨).
+async function loadErrorLog() { return apiGet('list_error_log'); }
+function logClientError(context, err) {
+  const message = err && err.message ? err.message : String(err);
+  apiPost('log_error', { context, message: message.slice(0, 2000) }).catch(() => {});
+}
 
 /* ===================== Groq LLM 호출 ===================== */
 const REVIEW_MODEL = 'llama-3.3-70b-versatile';
@@ -975,6 +998,7 @@ async function reviewBusinessPlan(planText, programTag, doubleCheck) {
   try {
     parsed = await callGroq(userPrompt);
   } catch (e) {
+    logClientError('review_budget', e);
     throw new Error(`사업비 검토 중 오류 발생: ${e.message}`);
   }
   const items = Array.isArray(parsed.items) ? parsed.items : [];
@@ -1093,6 +1117,7 @@ async function reviewEligibility(planText, programTag, doubleCheck) {
   try {
     parsed = await callGroq(userPrompt, SYSTEM_PROMPT_ELIGIBILITY);
   } catch (e) {
+    logClientError('review_eligibility', e);
     throw new Error(`지원요건 검토 중 오류 발생: ${e.message}`);
   }
   const items = Array.isArray(parsed.items) ? parsed.items : [];
@@ -1146,6 +1171,7 @@ async function askQuestion(question, programTag) {
   try {
     parsed = await callGroq(userPrompt, SYSTEM_PROMPT_QNA);
   } catch (e) {
+    logClientError('qna', e);
     throw new Error(`답변 생성 중 오류 발생: ${e.message}`);
   }
   return {
@@ -1250,6 +1276,37 @@ document.addEventListener('click', (e) => {
     return;
   }
   if (e.target.closest('.btn-print')) { window.print(); return; }
+  const noticeBtn = e.target.closest('.btn-export-notice');
+  if (noticeBtn) {
+    const entry = renderRegistry[noticeBtn.dataset.renderId];
+    const container = document.getElementById('notice-draft-' + noticeBtn.dataset.renderId);
+    if (entry && container) {
+      const draft = buildRejectionNoticeDraft(entry.items, entry.meta || {});
+      const taId = 'notice-text-' + noticeBtn.dataset.renderId;
+      container.innerHTML = `<div class="card">
+        <div class="row" style="justify-content:space-between; margin-bottom:8px">
+          <h2 style="font-size:13px; margin:0">📄 보완요청 공문 초안</h2>
+          <button class="ghost btn-copy-notice" data-target="${taId}">복사하기</button>
+        </div>
+        <textarea id="${taId}" rows="12" readonly style="width:100%; font-size:13px; padding:10px; border:1px solid var(--border); border-radius:var(--radius-sm); background:var(--card-2); color:var(--text); font-family:inherit;">${escapeHtml(draft)}</textarea>
+      </div>`;
+    }
+    return;
+  }
+  const copyBtn = e.target.closest('.btn-copy-notice');
+  if (copyBtn) {
+    const ta = document.getElementById(copyBtn.dataset.target);
+    if (ta && navigator.clipboard) {
+      navigator.clipboard.writeText(ta.value).then(() => {
+        const original = copyBtn.textContent;
+        copyBtn.textContent = '복사됨!';
+        setTimeout(() => { copyBtn.textContent = original; }, 1500);
+      }).catch(() => { ta.select(); });
+    } else if (ta) {
+      ta.select();
+    }
+    return;
+  }
   const fbBtn = e.target.closest('.btn-item-feedback');
   if (fbBtn) {
     fbBtn.disabled = true;
@@ -1277,11 +1334,12 @@ function renderResultTable(items, opts) {
   const usedGuidelines = opts.usedGuidelines || [];
   const meta = opts.meta || {};
   const renderId = 'r' + (++RENDER_SEQ);
-  renderRegistry[renderId] = { items, filename: meta.filename };
+  renderRegistry[renderId] = { items, filename: meta.filename, meta };
 
   const counts = { 적합: 0, 수정필요: 0, 불가: 0, 확인필요: 0 };
   items.forEach(it => counts[it.verdict] = (counts[it.verdict] || 0) + 1);
   const hasCostFields = items.some(it => it.cost_category || it.usability);
+  const hasIssues = items.some(it => it.verdict !== '적합');
 
   const metaLine = [meta.filename, meta.reviewer ? `검토자: ${meta.reviewer}` : '', meta.created_at ? new Date(meta.created_at).toLocaleString() : '']
     .filter(Boolean).map(escapeHtml).join(' · ');
@@ -1292,6 +1350,7 @@ function renderResultTable(items, opts) {
       <div class="row no-print">
         <button class="ghost btn-export-csv" data-render-id="${renderId}">⬇ 엑셀로 내보내기</button>
         <button class="ghost btn-print" data-render-id="${renderId}">🖨 인쇄 / PDF 저장</button>
+        ${hasIssues ? `<button class="ghost btn-export-notice" data-render-id="${renderId}">📄 보완요청 공문 초안</button>` : ''}
       </div>
     </div>
     <div class="summary">
@@ -1329,8 +1388,30 @@ function renderResultTable(items, opts) {
       </div>
     </details>`;
   }
+  if (hasIssues) html += `<div id="notice-draft-${renderId}" class="no-print"></div>`;
   html += `</div>`;
   return html;
+}
+
+// "수정필요"/"불가" 항목만 모아 운영사에 보낼 보완요청 공문 초안을 만든다 (LLM 호출 없이 템플릿 조합).
+function buildRejectionNoticeDraft(items, meta) {
+  const badItems = items.filter(it => it.verdict === '불가' || it.verdict === '수정필요');
+  if (!badItems.length) return '';
+  const lines = [];
+  lines.push(`제목: [${meta.filename || '사업계획서'}] 검토 결과 보완 요청`);
+  lines.push('');
+  lines.push('귀 사(운영사)에서 제출하신 사업계획서를 검토한 결과, 아래 항목에 대한 보완이 필요하여 안내드립니다.');
+  lines.push('');
+  badItems.forEach((it, i) => {
+    lines.push(`${i + 1}. ${it.item_label} [${it.verdict}]`);
+    if (it.reason) lines.push(`   - 사유: ${it.reason}`);
+    if (it.suggestion) lines.push(`   - 보완 방향: ${it.suggestion}`);
+    lines.push('');
+  });
+  lines.push('위 사항을 반영하여 재제출해 주시기 바랍니다. 문의사항은 담당자에게 연락 부탁드립니다.');
+  lines.push('');
+  lines.push('※ 이 초안은 AI가 검토 결과를 바탕으로 자동 생성한 것입니다. 발송 전 반드시 담당자가 내용을 확인·수정하세요.');
+  return lines.join('\n');
 }
 
 /* ===================== 재제출 비교 재검토 ===================== */
@@ -1799,18 +1880,65 @@ async function refreshHistoryView() {
   });
   list.querySelectorAll('[data-status-reject]').forEach(btn => {
     btn.addEventListener('click', async () => {
-      try { await updateSessionStatus(btn.dataset.statusReject, '반려'); await refreshHistoryView(); } catch (e) { alert('오류: ' + e.message); }
+      const id = btn.dataset.statusReject;
+      const reason = prompt('반려 사유를 입력하세요 (입력하면 "과거 판정 사례"로 자동 학습되어 다음부터 비슷한 사안을 참고할 수 있습니다. 취소하려면 취소를 누르세요):', '');
+      if (reason === null) return;
+      try {
+        await updateSessionStatus(id, '반려');
+        if (reason.trim()) {
+          const session = sessions.find(s => s.id === id);
+          await saveRejectionAsCase(session, reason.trim());
+        }
+        await refreshHistoryView();
+      } catch (e) {
+        alert('오류: ' + e.message);
+      }
     });
   });
 }
 
+// 반려 사유를 doc_type='사례'로 자동 저장 - 다음 지원요건 검토 때 보조 참고자료로 쓰인다.
+async function saveRejectionAsCase(session, reason) {
+  if (!session) return;
+  const badItems = (session.items || []).filter(it => it.verdict !== '적합');
+  const detailLines = badItems.map(it => `- ${it.item_label}: ${it.reason || ''}`).join('\n');
+  const content = `[반려 사례] ${session.filename}\n반려 사유: ${reason}\n\n` +
+    (detailLines ? `[검토 시점 세부 판정]\n${detailLines}` : '(세부 판정 항목 없음)');
+  const label = `반려: ${reason}`.slice(0, 60);
+  await addGuidelineChunks(`반려사례 - ${session.filename}`, [[label, content]], '사례', '');
+}
+
 /* ===================== 통계 대시보드 ===================== */
+// 최근 N건의 세션을 기업/파일 x 항목 매트릭스로 보여준다 - 여러 기업을 나란히 비교할 때 쓴다.
+function renderComparisonMatrix(sessions, reviewType) {
+  const filtered = sessions.filter(s => (s.review_type || 'budget') === reviewType).slice(0, 20);
+  if (!filtered.length) return '<p class="muted">데이터가 부족합니다.</p>';
+  const labelCounts = {};
+  filtered.forEach(s => (s.items || []).forEach(it => {
+    const key = (it.item_label || '').trim();
+    if (key) labelCounts[key] = (labelCounts[key] || 0) + 1;
+  }));
+  const topLabels = Object.entries(labelCounts).sort((a, b) => b[1] - a[1]).slice(0, 8).map(([k]) => k);
+  if (!topLabels.length) return '<p class="muted">비교할 항목이 없습니다.</p>';
+  return `<div class="table-wrap"><table><thead><tr><th>기업/파일</th>${topLabels.map(l => `<th>${escapeHtml(l)}</th>`).join('')}</tr></thead><tbody>` +
+    filtered.map(s => {
+      const byLabel = {};
+      (s.items || []).forEach(it => { byLabel[(it.item_label || '').trim()] = it; });
+      return `<tr><td>${escapeHtml(s.filename)}</td>${topLabels.map(l => {
+        const it = byLabel[l];
+        return `<td>${it ? verdictBadge(it.verdict) : '<span class="muted">-</span>'}</td>`;
+      }).join('')}</tr>`;
+    }).join('') + `</tbody></table></div>`;
+}
+
 async function refreshStatsView() {
   const el = $('#stats-content');
   el.innerHTML = `<div class="empty">불러오는 중...</div>`;
-  let sessions, qna, itemFeedback;
+  let sessions, qna, itemFeedback, errorLog;
   try {
-    [sessions, qna, itemFeedback] = await Promise.all([loadSessions(), loadQna(), loadItemFeedback().catch(() => [])]);
+    [sessions, qna, itemFeedback, errorLog] = await Promise.all([
+      loadSessions(), loadQna(), loadItemFeedback().catch(() => []), loadErrorLog().catch(() => []),
+    ]);
   } catch (e) {
     el.innerHTML = `<div class="card err-box">통계를 불러오지 못했습니다: ${escapeHtml(e.message)}</div>`;
     return;
@@ -1834,6 +1962,10 @@ async function refreshStatsView() {
   }
   const topIssues = Object.entries(itemIssueCounts).sort((a, b) => b[1] - a[1]).slice(0, 5);
   const topQna = [...qna].sort((a, b) => (b.hit_count || 1) - (a.hit_count || 1)).slice(0, 5);
+  const errorCounts = {};
+  errorLog.forEach(e => { errorCounts[e.context || '기타'] = (errorCounts[e.context || '기타'] || 0) + 1; });
+  const topErrors = Object.entries(errorCounts).sort((a, b) => b[1] - a[1]).slice(0, 5);
+  const recentErrors = [...errorLog].sort((a, b) => b.created_at.localeCompare(a.created_at)).slice(0, 5);
 
   el.innerHTML = `
     <div class="summary">
@@ -1867,7 +1999,32 @@ async function refreshStatsView() {
         <div class="stat ok"><span class="stat-label">👍 동의</span><b>${feedbackUp}</b></div>
         <div class="stat bad"><span class="stat-label">👎 이견</span><b>${feedbackDown}</b></div>
       </div>
+    </div>
+    <div class="card" style="box-shadow:none; border:1px solid var(--border)">
+      <div class="row" style="justify-content:space-between; flex-wrap:wrap; gap:8px">
+        <h2 style="font-size:13px; margin:0">🧮 기업 비교 매트릭스 (최근 20건, 자주 등장한 항목 상위 8개)</h2>
+        <div class="row" style="gap:12px">
+          <label class="row" style="gap:4px; font-size:12.5px; cursor:pointer"><input type="radio" name="matrix-type" value="eligibility" checked /> 지원요건</label>
+          <label class="row" style="gap:4px; font-size:12.5px; cursor:pointer"><input type="radio" name="matrix-type" value="budget" /> 사업비</label>
+        </div>
+      </div>
+      <div id="stats-matrix" style="margin-top:10px"></div>
+    </div>
+    <div class="card" style="box-shadow:none; border:1px solid var(--border)">
+      <h2 style="font-size:13px">🐞 오류 로그 (참고용 - 조용히 실패하던 오류를 여기서 확인할 수 있습니다)</h2>
+      ${topErrors.length ? `<p class="muted" style="margin:0 0 8px">유형별 발생 건수: ${topErrors.map(([ctx, n]) => `${escapeHtml(ctx)} ${n}건`).join(' · ')}</p>
+        <div class="table-wrap"><table><thead><tr><th>유형</th><th>메시지</th><th>시각</th></tr></thead><tbody>` +
+        recentErrors.map(e => `<tr><td class="muted">${escapeHtml(e.context)}</td><td>${escapeHtml(e.message).slice(0, 120)}</td><td class="muted">${escapeHtml(new Date(e.created_at).toLocaleString())}</td></tr>`).join('') + `</tbody></table></div>`
+        : `<p class="muted">기록된 오류가 없습니다.</p>`}
     </div>`;
+
+  const renderMatrix = () => {
+    const type = document.querySelector('input[name="matrix-type"]:checked').value;
+    const matrixEl = document.getElementById('stats-matrix');
+    if (matrixEl) matrixEl.innerHTML = renderComparisonMatrix(sessions, type);
+  };
+  document.querySelectorAll('input[name="matrix-type"]').forEach(r => r.addEventListener('change', renderMatrix));
+  renderMatrix();
 }
 
 /* ===================== Q&A (운영사 문의 1차 응답) UI ===================== */
@@ -1900,40 +2057,20 @@ function renderQnaCard(entry) {
   </div>`;
 }
 
-// 새 질문이 기존 QnA 이력과 얼마나 비슷한지 확인 - 의미 기반(임베딩) 우선, 실패 시 bigram 폴백.
-// 임계값 이상이면 LLM 호출 없이 기존 답변을 먼저 제안해 중복 문의/비용을 줄인다.
-const QNA_SIMILARITY_THRESHOLD_SEMANTIC = 0.86;
+// 새 질문이 기존 QnA 이력과 얼마나 비슷한지 확인 - bigram 유사도만 사용한다(임베딩 경로는
+// 위 findRelevant와 같은 이유로 비활성화됨). 임계값 이상이면 LLM 호출 없이 기존 답변을 먼저
+// 제안해 중복 문의/비용을 줄인다.
 const QNA_SIMILARITY_THRESHOLD_LEXICAL = 0.45;
 
 async function findSimilarQna(question, qnaList) {
   if (!qnaList.length) return null;
-  try {
-    const embedder = await getEmbedder();
-    const qVec = await embedText(embedder, question);
-    const cache = loadEmbedCache();
-    let cacheDirty = false;
-    let best = null, bestScore = -1;
-    for (const entry of qnaList) {
-      const key = 'qna:' + entry.id;
-      if (!cache[key]) { cache[key] = await embedText(embedder, entry.question); cacheDirty = true; }
-      const score = cosineSim(qVec, cache[key]);
-      if (score > bestScore) { bestScore = score; best = entry; }
-    }
-    if (cacheDirty) saveEmbedCache(cache);
-    if (best && bestScore >= QNA_SIMILARITY_THRESHOLD_SEMANTIC) {
-      return { entry: best, score: bestScore, method: '의미 기반' };
-    }
-    return null;
-  } catch (e) {
-    console.warn('질문 유사도(임베딩) 확인 실패 - bigram으로 대체:', e);
-    let best = null, bestScore = 0;
-    for (const entry of qnaList) {
-      const score = relevanceScore(question, entry.question);
-      if (score > bestScore) { bestScore = score; best = entry; }
-    }
-    if (best && bestScore >= QNA_SIMILARITY_THRESHOLD_LEXICAL) return { entry: best, score: bestScore, method: '텍스트 유사도' };
-    return null;
+  let best = null, bestScore = 0;
+  for (const entry of qnaList) {
+    const score = relevanceScore(question, entry.question);
+    if (score > bestScore) { bestScore = score; best = entry; }
   }
+  if (best && bestScore >= QNA_SIMILARITY_THRESHOLD_LEXICAL) return { entry: best, score: bestScore, method: '텍스트 유사도' };
+  return null;
 }
 
 async function askAndSaveQuestion(question, askedBy) {

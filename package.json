@@ -1,0 +1,24 @@
+{
+  "name": "lips-agreement-review",
+  "version": "1.0.0",
+  "description": "중기부에서 제정/개정한 LIPS(혁신 소상공인 투자연계지원) 운영지침(사업비 집행기준 등)을 학습시켜두고, 협약 절차 중 제출된 사업계획서를 올리면 지침에 비추어 **수정이 필요한 항목 / 지침상 불가능한 항목**을 1차로 걸러줍니다.",
+  "main": "sw.js",
+  "scripts": {
+    "test": "playwright test"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jason7897/lips-agreement-review.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/jason7897/lips-agreement-review/issues"
+  },
+  "homepage": "https://github.com/jason7897/lips-agreement-review#readme",
+  "devDependencies": {
+    "@playwright/test": "^1.62.0"
+  }
+}
