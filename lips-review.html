@@ -4,6 +4,11 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>LIPS2 에이전트</title>
+<link rel="manifest" href="./manifest.json" />
+<meta name="theme-color" content="#2f6fed" />
+<!-- PWA는 http(s)로 호스팅해야 실제 설치/오프라인이 동작합니다. file://로 직접 열면
+     서비스워커 등록이 브라우저에서 지원되지 않아 이 부분은 조용히 무시됩니다
+     (테스트하려면 이 폴더에서 `python -m http.server` 실행 후 http://localhost:8000 으로 접속). -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <style>
@@ -212,6 +217,7 @@
   <button class="tab active" data-view="review">📝 사업계획서 검토</button>
   <button class="tab" data-view="qna">💬 Q&A</button>
   <button class="tab" data-view="guidelines">📚 지침·공고문 관리</button>
+  <button class="tab" data-view="drive-batch">📂 드라이브 일괄</button>
   <button class="tab" data-view="history">🕘 검토 이력</button>
   <button class="tab" data-view="stats">📊 통계</button>
 </nav>
@@ -239,6 +245,12 @@
         <label class="row" style="gap:6px; cursor:pointer; font-size:13px">
           <input type="checkbox" id="mode-double-check" /> 🔍 이중 검증(적합·불가 판정 재확인, 다소 느려짐)
         </label>
+      </div>
+      <div class="row" style="margin-bottom:12px; gap:8px">
+        <label class="muted" style="font-size:12.5px" for="review-compare-session">🔁 이전 검토와 비교(선택):</label>
+        <select id="review-compare-session" style="font-size:13px; padding:8px 12px; border:1px solid var(--border); border-radius:var(--radius-sm); background:var(--card); color:var(--text)">
+          <option value="">비교 안 함</option>
+        </select>
       </div>
       <div class="dropzone">
         <span class="dz-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
@@ -282,7 +294,12 @@
     <div class="card">
       <div class="row" style="justify-content: space-between; flex-wrap:wrap; gap:8px">
         <h2 style="margin:0"><span class="h2-icon purple">🕘</span> 지난 질문 (FAQ)</h2>
-        <input type="text" id="qna-search" placeholder="지난 질문 검색..." style="min-width:220px" />
+        <div class="row" style="gap:12px; flex-wrap:wrap">
+          <label class="row muted" style="gap:6px; cursor:pointer; font-size:12.5px">
+            <input type="checkbox" id="qna-filter-mine" /> 🔒 내 문의만 보기 (이름 기준 필터일 뿐, 보안 아님)
+          </label>
+          <input type="text" id="qna-search" placeholder="지난 질문 검색..." style="min-width:220px" />
+        </div>
       </div>
       <div id="qna-list"></div>
     </div>
@@ -349,9 +366,28 @@
     </div>
   </div>
 
+  <div id="view-drive-batch" class="view">
+    <div class="card no-print">
+      <h2><span class="h2-icon blue">📂</span> 구글드라이브 일괄 검토</h2>
+      <p class="muted">기업별 하위폴더가 들어있는 상위 폴더의 구글드라이브 URL을 붙여넣으면, 폴더마다 "사업계획서"로 보이는 파일을 하나씩 찾아 일괄로 검토합니다 (예: 시드립스 1차 신청기업 폴더).</p>
+      <p class="muted">⚠️ 이 기능은 Apps Script가 구글드라이브를 읽을 권한이 필요합니다. 처음 사용 시 담당자가 Apps Script 편집기에서 함수를 한 번 직접 실행해 권한을 승인해야 동작합니다. 공유 드라이브 폴더 지원 여부는 실제 폴더로 아직 검증 전입니다.</p>
+      <div class="row" style="margin-bottom:10px">
+        <input type="text" id="drive-folder-url" placeholder="https://drive.google.com/drive/folders/..." style="min-width:360px" />
+        <button class="primary" id="btn-drive-scan">폴더 스캔</button>
+      </div>
+      <div id="drive-scan-result"></div>
+    </div>
+    <div id="drive-batch-result"></div>
+  </div>
+
   <div id="view-history" class="view">
     <div class="card">
-      <h2><span class="h2-icon purple">🕘</span> 검토 이력</h2>
+      <div class="row" style="justify-content: space-between; flex-wrap:wrap; gap:8px">
+        <h2 style="margin:0"><span class="h2-icon purple">🕘</span> 검토 이력</h2>
+        <label class="row muted" style="gap:6px; cursor:pointer; font-size:12.5px">
+          <input type="checkbox" id="history-filter-mine" /> 🔒 내 이력만 보기 (검토자 이름 기준 - 로그인/보안 아님, 화면 필터일 뿐)
+        </label>
+      </div>
       <div id="history-list"></div>
     </div>
     <div id="history-detail"></div>
@@ -412,6 +448,47 @@ async function extractPdfText(file) {
     text += line.trim() + '\n\n';
   }
   return text;
+}
+
+// extractPdfText와 동일하게 페이지별 텍스트를 재구성하되, 한 문자열로 합치지 않고 페이지별
+// 배열로 반환한다 - 판정 항목이 원본 몇 페이지에서 나온 근거인지 추정(bigram 유사도)할 때만 쓴다.
+async function extractPdfPageTexts(file) {
+  const buf = await file.arrayBuffer();
+  const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
+  const pages = [];
+  for (let i = 1; i <= pdf.numPages; i++) {
+    const page = await pdf.getPage(i);
+    const content = await page.getTextContent();
+    let lastY = null, text = '', line = '';
+    for (const item of content.items) {
+      const y = item.transform[5];
+      if (lastY !== null && Math.abs(y - lastY) > LINE_Y_THRESHOLD) { text += line.trim() + '\n'; line = ''; }
+      line += item.str + ' ';
+      lastY = y;
+    }
+    text += line.trim();
+    pages.push(text);
+  }
+  return pages;
+}
+
+// PDF 한정 - 판정 항목(item_label+item_content)과 가장 비슷한 페이지를 bigram 유사도로 추정해
+// source_page를 붙인다. 어디까지나 추정치이며, HWPX나 매칭 실패 항목은 그대로 둔다.
+async function attachSourcePageHints(file, items) {
+  if (!file.name.toLowerCase().endsWith('.pdf')) return items;
+  let pages;
+  try { pages = await extractPdfPageTexts(file); } catch (e) { return items; }
+  if (!pages.length) return items;
+  return items.map(it => {
+    const query = `${it.item_label} ${it.item_content}`.trim();
+    if (!query) return it;
+    let bestPage = null, bestScore = 0;
+    pages.forEach((pageText, idx) => {
+      const score = relevanceScore(query, pageText);
+      if (score > bestScore) { bestScore = score; bestPage = idx + 1; }
+    });
+    return bestScore > 0.05 ? { ...it, source_page: bestPage } : it;
+  });
 }
 
 async function extractHwpxText(file) {
@@ -745,6 +822,12 @@ async function saveQna(question, answer, usedDocs, askedBy, confidence) {
   return apiPost('save_qna', { question, answer, usedDocs, asked_by: askedBy, confidence });
 }
 async function bumpQnaHit(id) { return apiPost('bump_qna_hit', { id }); }
+async function saveItemFeedback(sessionId, itemLabel, feedback) {
+  return apiPost('save_item_feedback', { session_id: sessionId, item_label: itemLabel, feedback });
+}
+async function loadItemFeedback() { return apiGet('list_item_feedback'); }
+async function loadDriveCompanies(folderId) { return apiGet('list_drive_companies', { folder_id: folderId }); }
+async function getDriveFile(fileId) { return apiGet('get_drive_file', { file_id: fileId }); }
 
 /* ===================== Groq LLM 호출 ===================== */
 const REVIEW_MODEL = 'llama-3.3-70b-versatile';
@@ -1163,6 +1246,15 @@ document.addEventListener('click', (e) => {
     return;
   }
   if (e.target.closest('.btn-print')) { window.print(); return; }
+  const fbBtn = e.target.closest('.btn-item-feedback');
+  if (fbBtn) {
+    fbBtn.disabled = true;
+    const row = fbBtn.closest('.fb-cell');
+    saveItemFeedback(fbBtn.dataset.session, fbBtn.dataset.item, fbBtn.dataset.fb)
+      .then(() => { if (row) row.innerHTML = fbBtn.dataset.fb === 'up' ? '👍 감사합니다' : '👎 확인하겠습니다'; })
+      .catch(() => { fbBtn.disabled = false; });
+    return;
+  }
 });
 
 // usability/cost_category_match는 사업비 집행 검토(reviewBusinessPlan)에서만 채워지는 필드라,
@@ -1205,16 +1297,20 @@ function renderResultTable(items, opts) {
       ${counts['확인필요'] ? `<div class="stat unk"><span class="stat-label">${VERDICT_ICONS['확인필요']}확인필요</span><b>${counts['확인필요']}</b></div>` : ''}
     </div>
     <div class="table-wrap"><table>
-      <thead><tr><th>항목</th>${hasCostFields ? '<th>비목 분류</th><th>사용 가능 여부</th>' : ''}<th>판정</th><th>사유</th><th>근거 지침</th><th>수정 제안</th></tr></thead>
+      <thead><tr><th>항목</th>${hasCostFields ? '<th>비목 분류</th><th>사용 가능 여부</th>' : ''}<th>판정</th><th>사유</th><th>근거 지침</th><th>수정 제안</th>${opts.sessionId ? '<th class="no-print">피드백</th>' : ''}</tr></thead>
       <tbody>`;
   for (const it of items) {
     html += `<tr>
-      <td><b>${escapeHtml(it.item_label)}</b><div class="item-content">${escapeHtml(it.item_content).slice(0, 300)}</div></td>
+      <td><b>${escapeHtml(it.item_label)}</b>${it.source_page ? ` <span class="muted" style="font-weight:400">📄 p.${it.source_page}(추정)</span>` : ''}<div class="item-content">${escapeHtml(it.item_content).slice(0, 300)}</div></td>
       ${hasCostFields ? `<td>${escapeHtml(it.cost_category || '-')}${it.cost_category_match ? `<div class="muted" style="margin-top:4px">표기 비목 ${costCategoryMatchBadge(it.cost_category_match)}</div>` : ''}</td><td>${usabilityBadge(it.usability)}</td>` : ''}
       <td>${verdictBadge(it.verdict)}</td>
       <td>${escapeHtml(it.reason)}</td>
       <td class="muted">${escapeHtml(it.guideline_ref)}</td>
       <td>${escapeHtml(it.suggestion)}</td>
+      ${opts.sessionId ? `<td class="no-print fb-cell">
+        <button class="link-btn btn-item-feedback" data-session="${escapeHtml(opts.sessionId)}" data-item="${escapeHtml(it.item_label)}" data-fb="up">👍</button>
+        <button class="link-btn btn-item-feedback" data-session="${escapeHtml(opts.sessionId)}" data-item="${escapeHtml(it.item_label)}" data-fb="down">👎</button>
+      </td>` : ''}
     </tr>`;
   }
   html += `</tbody></table></div>`;
@@ -1233,6 +1329,58 @@ function renderResultTable(items, opts) {
   return html;
 }
 
+/* ===================== 재제출 비교 재검토 ===================== */
+function matchOldItem(newItem, oldItems, used) {
+  let best = null, bestScore = 0;
+  oldItems.forEach((oi, idx) => {
+    if (used.has(idx)) return;
+    const score = oi.item_label === newItem.item_label ? 1 : relevanceScore(newItem.item_label, oi.item_label);
+    if (score > bestScore) { bestScore = score; best = idx; }
+  });
+  return (best !== null && bestScore >= 0.4) ? best : null;
+}
+
+function renderComparisonCard(oldItems, newItems) {
+  const used = new Set();
+  const improved = [], unresolved = [], fresh = [];
+  for (const ni of newItems) {
+    const idx = matchOldItem(ni, oldItems, used);
+    if (idx === null) {
+      if (ni.verdict !== '적합') fresh.push(ni.item_label);
+      continue;
+    }
+    used.add(idx);
+    const oi = oldItems[idx];
+    const wasBad = oi.verdict !== '적합';
+    const nowGood = ni.verdict === '적합';
+    if (wasBad && nowGood) improved.push(ni.item_label);
+    else if (wasBad && !nowGood) unresolved.push(ni.item_label);
+  }
+  const line = (label, list) => list.length ? `<div style="margin-top:6px"><b>${label} (${list.length})</b>: ${list.map(escapeHtml).join(', ')}</div>` : '';
+  return `<div class="card" style="border-left:4px solid var(--accent)">
+    <h2 style="font-size:13px; margin:0 0 4px">🔁 이전 검토 대비 변화</h2>
+    <p class="muted" style="margin:0">항목명 기준 자동 매칭(참고용) - 라벨이 크게 달라지면 매칭에 실패할 수 있습니다.</p>
+    ${line('✅ 개선됨', improved)}${line('⚠️ 미해결', unresolved)}${line('🆕 신규 지적사항', fresh)}
+    ${!improved.length && !unresolved.length && !fresh.length ? '<p class="muted" style="margin-top:6px">이전 검토와 비교해 눈에 띄는 변화가 없습니다.</p>' : ''}
+  </div>`;
+}
+
+async function refreshCompareSessionSelect() {
+  const el = $('#review-compare-session');
+  if (!el) return;
+  let sessions;
+  try { sessions = await loadSessions(); } catch (e) { return; }
+  const reviewType = $('#mode-eligibility').checked ? 'eligibility' : 'budget';
+  const filtered = sessions.filter(s => (s.review_type || 'budget') === reviewType);
+  const current = el.value;
+  el.innerHTML = `<option value="">비교 안 함</option>` +
+    filtered.map(s => `<option value="${s.id}">${escapeHtml(s.filename)} · ${escapeHtml(new Date(s.created_at).toLocaleString())}</option>`).join('');
+  if (filtered.some(s => s.id === current)) el.value = current;
+}
+document.querySelectorAll('input[name="review-mode"]').forEach(radio => {
+  radio.addEventListener('change', refreshCompareSessionSelect);
+});
+
 $('#btn-review').addEventListener('click', async () => {
   const fileInput = $('#plan-file');
   if (!fileInput.files.length) { alert('사업계획서 파일을 선택하세요.'); return; }
@@ -1241,6 +1389,15 @@ $('#btn-review').addEventListener('click', async () => {
   const reviewType = $('#mode-eligibility').checked ? 'eligibility' : 'budget';
   const programTag = $('#review-program-tag').value;
   const doubleCheck = $('#mode-double-check').checked;
+  const compareSessionId = $('#review-compare-session').value;
+  let compareItems = null;
+  if (compareSessionId) {
+    try {
+      const sessions = await loadSessions();
+      const found = sessions.find(s => s.id === compareSessionId);
+      if (found) compareItems = found.items;
+    } catch (e) { /* 비교 세션을 못 불러와도 검토 자체는 계속 진행 */ }
+  }
   const btn = $('#btn-review');
   btn.disabled = true;
   $('#spinner').classList.add('show');
@@ -1257,13 +1414,18 @@ $('#btn-review').addEventListener('click', async () => {
     try {
       const text = await extractText(file);
       if (!text.trim()) throw new Error('문서에서 텍스트를 추출하지 못했습니다.');
-      const { items, usedGuidelines } = reviewType === 'eligibility'
+      let { items, usedGuidelines } = reviewType === 'eligibility'
         ? await reviewEligibility(text, programTag, doubleCheck)
         : await reviewBusinessPlan(text, programTag, doubleCheck);
+      items = await attachSourcePageHints(file, items);
       const createdAt = new Date().toISOString();
-      card.innerHTML = renderResultTable(items, { usedGuidelines, meta: { filename: file.name, reviewer, created_at: createdAt } });
+      const comparisonHtml = compareItems ? renderComparisonCard(compareItems, items) : '';
+      const meta = { filename: file.name, reviewer, created_at: createdAt };
+      card.innerHTML = comparisonHtml + renderResultTable(items, { usedGuidelines, meta });
       try {
-        await saveSession(file.name, items, usedGuidelines, reviewer, reviewType);
+        const saved = await saveSession(file.name, items, usedGuidelines, reviewer, reviewType);
+        card.innerHTML = comparisonHtml + renderResultTable(items, { usedGuidelines, meta, sessionId: saved.id });
+        refreshCompareSessionSelect();
       } catch (e) {
         card.insertAdjacentHTML('afterbegin', `<div class="card warn-box no-print">⚠️ 검토 결과는 정상이지만 이력 저장에 실패했습니다: ${escapeHtml(e.message)}</div>`);
       }
@@ -1275,6 +1437,110 @@ $('#btn-review').addEventListener('click', async () => {
   btn.disabled = false;
   $('#spinner').classList.remove('show');
 });
+
+/* ===================== 구글드라이브 일괄 검토 ===================== */
+let driveCompaniesCache = [];
+
+function extractDriveFolderId(input) {
+  const s = (input || '').trim();
+  const m = s.match(/folders\/([a-zA-Z0-9_-]{10,})/) || s.match(/[?&]id=([a-zA-Z0-9_-]{10,})/);
+  if (m) return m[1];
+  return /^[a-zA-Z0-9_-]{10,}$/.test(s) ? s : null;
+}
+
+function renderDriveScanResult(companies) {
+  return `<div class="card">
+    <div class="row" style="margin-bottom:10px; gap:16px">
+      <label class="row" style="gap:6px; cursor:pointer; font-size:13px"><input type="radio" name="drive-mode" value="eligibility" checked /> ✅ 지원요건 검토</label>
+      <label class="row" style="gap:6px; cursor:pointer; font-size:13px"><input type="radio" name="drive-mode" value="budget" /> 🧾 사업비 집행 검토</label>
+    </div>
+    <div class="row" style="margin-bottom:10px">
+      <select id="drive-program-tag" style="font-size:13px; padding:8px 12px; border:1px solid var(--border); border-radius:var(--radius-sm); background:var(--card); color:var(--text)">
+        <option value="">전체 (사업/회차 자동 판단)</option>
+      </select>
+    </div>
+    <div class="table-wrap"><table><thead><tr><th></th><th>기업(폴더명)</th><th>선택된 파일</th></tr></thead><tbody>
+    ${companies.map((c, i) => `<tr>
+      <td><input type="checkbox" class="drive-company-check" data-idx="${i}" ${c.file_id ? 'checked' : 'disabled'} /></td>
+      <td>${escapeHtml(c.company)}</td>
+      <td class="muted">${c.file_id ? escapeHtml(c.file_name) : escapeHtml(c.note || '파일 없음')}</td>
+    </tr>`).join('')}
+    </tbody></table></div>
+    <div class="row" style="margin-top:12px">
+      <button class="primary" id="btn-drive-batch-review">선택 기업 일괄 검토 시작</button>
+      <span class="spinner-inline" id="spinner-drive"><span class="spin-ring"></span><span id="spinner-drive-text">검토 중...</span></span>
+    </div>
+  </div>`;
+}
+
+$('#btn-drive-scan').addEventListener('click', async () => {
+  const folderId = extractDriveFolderId($('#drive-folder-url').value);
+  if (!folderId) { alert('올바른 구글드라이브 폴더 URL(또는 폴더 ID)을 입력하세요.'); return; }
+  const btn = $('#btn-drive-scan');
+  btn.disabled = true;
+  $('#drive-scan-result').innerHTML = `<div class="card muted">⏳ 폴더 스캔 중...</div>`;
+  $('#drive-batch-result').innerHTML = '';
+  try {
+    const result = await loadDriveCompanies(folderId);
+    if (result.error) throw new Error(result.error);
+    driveCompaniesCache = result.companies || [];
+    $('#drive-scan-result').innerHTML = renderDriveScanResult(driveCompaniesCache);
+    await refreshProgramTagSelects();
+    $('#btn-drive-batch-review').addEventListener('click', runDriveBatchReview);
+  } catch (e) {
+    $('#drive-scan-result').innerHTML = `<div class="card err-box">${escapeHtml(e.message)}</div>`;
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+async function runDriveBatchReview() {
+  const checks = Array.from(document.querySelectorAll('.drive-company-check:checked'));
+  if (!checks.length) { alert('검토할 기업을 하나 이상 선택하세요.'); return; }
+  const reviewType = document.querySelector('input[name="drive-mode"]:checked').value;
+  const programTag = $('#drive-program-tag').value;
+  const reviewer = getReviewerName();
+  const btn = $('#btn-drive-batch-review');
+  const spinner = $('#spinner-drive');
+  btn.disabled = true;
+  spinner.classList.add('show');
+  $('#drive-batch-result').innerHTML = '';
+
+  for (const chk of checks) {
+    const company = driveCompaniesCache[Number(chk.dataset.idx)];
+    $('#spinner-drive-text').textContent = `검토 중... ${company.company}`;
+    const card = document.createElement('div');
+    card.innerHTML = `<div class="card muted">⏳ ${escapeHtml(company.company)} (${escapeHtml(company.file_name)}) 처리 중...</div>`;
+    $('#drive-batch-result').appendChild(card);
+    try {
+      const fileData = await getDriveFile(company.file_id);
+      if (fileData.error) throw new Error(fileData.error);
+      const bytes = Uint8Array.from(atob(fileData.base64), c => c.charCodeAt(0));
+      const file = new File([bytes], fileData.name, { type: fileData.mime_type || 'application/octet-stream' });
+      const text = await extractText(file);
+      if (!text.trim()) throw new Error('문서에서 텍스트를 추출하지 못했습니다.');
+      let { items, usedGuidelines } = reviewType === 'eligibility'
+        ? await reviewEligibility(text, programTag, false)
+        : await reviewBusinessPlan(text, programTag, false);
+      items = await attachSourcePageHints(file, items);
+      const createdAt = new Date().toISOString();
+      const meta = { filename: `${company.company} - ${file.name}`, reviewer, created_at: createdAt };
+      card.innerHTML = renderResultTable(items, { usedGuidelines, meta });
+      try {
+        const saved = await saveSession(meta.filename, items, usedGuidelines, reviewer, reviewType);
+        card.innerHTML = renderResultTable(items, { usedGuidelines, meta, sessionId: saved.id });
+      } catch (e) {
+        card.insertAdjacentHTML('afterbegin', `<div class="card warn-box no-print">⚠️ 검토 결과는 정상이지만 이력 저장에 실패했습니다: ${escapeHtml(e.message)}</div>`);
+      }
+    } catch (e) {
+      card.innerHTML = `<div class="card err-box">${escapeHtml(company.company)} 처리 중 오류: ${escapeHtml(e.message)}</div>`;
+    }
+  }
+
+  btn.disabled = false;
+  spinner.classList.remove('show');
+  refreshCompareSessionSelect();
+}
 
 $('#btn-upload-guideline').addEventListener('click', async () => {
   const fileInput = $('#guideline-file');
@@ -1348,7 +1614,7 @@ async function refreshProgramTagSelects() {
   let guidelines;
   try { guidelines = await loadGuidelines(); } catch (e) { return; }
   const tags = [...new Set(guidelines.map(g => (g.program_tag || '').trim()).filter(Boolean))].sort();
-  ['#review-program-tag', '#qna-program-tag'].forEach(sel => {
+  ['#review-program-tag', '#qna-program-tag', '#drive-program-tag'].forEach(sel => {
     const el = $(sel);
     if (!el) return;
     const current = el.value;
@@ -1470,6 +1736,13 @@ async function refreshGuidelinesView() {
   });
 }
 
+const LS_HISTORY_FILTER_MINE = 'lips_history_filter_mine';
+$('#history-filter-mine').checked = localStorage.getItem(LS_HISTORY_FILTER_MINE) === '1';
+$('#history-filter-mine').addEventListener('change', () => {
+  localStorage.setItem(LS_HISTORY_FILTER_MINE, $('#history-filter-mine').checked ? '1' : '0');
+  refreshHistoryView();
+});
+
 async function refreshHistoryView() {
   const list = $('#history-list');
   $('#history-detail').innerHTML = '';
@@ -1480,6 +1753,10 @@ async function refreshHistoryView() {
   } catch (e) {
     list.innerHTML = `<div class="card err-box">검토 이력을 불러오지 못했습니다: ${escapeHtml(e.message)}</div>`;
     return;
+  }
+  if ($('#history-filter-mine').checked) {
+    const mine = getReviewerName();
+    sessions = mine ? sessions.filter(s => (s.reviewer || '') === mine) : sessions;
   }
   if (!sessions.length) {
     list.innerHTML = `<div class="empty">
@@ -1507,6 +1784,7 @@ async function refreshHistoryView() {
       $('#history-detail').innerHTML = renderResultTable(session.items, {
         usedGuidelines: session.usedGuidelines,
         meta: { filename: session.filename, reviewer: session.reviewer, created_at: session.created_at },
+        sessionId: session.id,
       });
     });
   });
@@ -1526,13 +1804,15 @@ async function refreshHistoryView() {
 async function refreshStatsView() {
   const el = $('#stats-content');
   el.innerHTML = `<div class="empty">불러오는 중...</div>`;
-  let sessions, qna;
+  let sessions, qna, itemFeedback;
   try {
-    [sessions, qna] = await Promise.all([loadSessions(), loadQna()]);
+    [sessions, qna, itemFeedback] = await Promise.all([loadSessions(), loadQna(), loadItemFeedback().catch(() => [])]);
   } catch (e) {
     el.innerHTML = `<div class="card err-box">통계를 불러오지 못했습니다: ${escapeHtml(e.message)}</div>`;
     return;
   }
+  const feedbackUp = itemFeedback.filter(f => f.feedback === 'up').length;
+  const feedbackDown = itemFeedback.filter(f => f.feedback === 'down').length;
   const byType = { budget: 0, eligibility: 0 };
   const byStatus = { '대기': 0, '승인': 0, '반려': 0 };
   const byVerdict = { 적합: 0, 수정필요: 0, 불가: 0, 확인필요: 0 };
@@ -1575,6 +1855,14 @@ async function refreshStatsView() {
       ${topQna.length ? `<div class="table-wrap"><table><thead><tr><th>질문</th><th>문의수</th></tr></thead><tbody>` +
         topQna.map(e => `<tr><td>${escapeHtml(e.question).slice(0, 80)}</td><td>${e.hit_count || 1}</td></tr>`).join('') + `</tbody></table></div>`
         : `<p class="muted">아직 등록된 질문이 없습니다.</p>`}
+    </div>
+    <div class="card" style="box-shadow:none; border:1px solid var(--border)">
+      <h2 style="font-size:13px">👍👎 판정 항목 피드백</h2>
+      <p class="muted" style="margin:0">담당자가 검토 결과 표에서 개별 항목에 남긴 피드백 합계입니다.</p>
+      <div class="summary" style="margin-top:10px">
+        <div class="stat ok"><span class="stat-label">👍 동의</span><b>${feedbackUp}</b></div>
+        <div class="stat bad"><span class="stat-label">👎 이견</span><b>${feedbackDown}</b></div>
+      </div>
     </div>`;
 }
 
@@ -1743,19 +2031,29 @@ async function refreshQnaView() {
     list.innerHTML = `<div class="card err-box">지난 질문을 불러오지 못했습니다: ${escapeHtml(e.message)}</div>`;
     return;
   }
-  renderQnaList(qnaHistoryCache);
+  applyQnaFilters();
 }
 
-$('#qna-search').addEventListener('input', () => {
+// 검색어(qna-search)와 "내 문의만 보기"(qna-filter-mine)를 함께 적용해 다시 렌더링한다.
+function applyQnaFilters() {
+  let filtered = qnaHistoryCache;
+  if ($('#qna-filter-mine').checked) {
+    const mine = $('#qna-asker').value.trim();
+    filtered = mine ? filtered.filter(e => (e.asked_by || '') === mine) : filtered;
+  }
   const q = $('#qna-search').value.trim();
-  if (!q) { renderQnaList(qnaHistoryCache); return; }
-  const matches = qnaHistoryCache
-    .map(e => [Math.max(relevanceScore(q, e.question), e.question.includes(q) ? 1 : 0), e])
-    .filter(x => x[0] > 0)
-    .sort((x, y) => y[0] - x[0])
-    .map(x => x[1]);
-  renderQnaList(matches);
-});
+  if (q) {
+    filtered = filtered
+      .map(e => [Math.max(relevanceScore(q, e.question), e.question.includes(q) ? 1 : 0), e])
+      .filter(x => x[0] > 0)
+      .sort((x, y) => y[0] - x[0])
+      .map(x => x[1]);
+  }
+  renderQnaList(filtered);
+}
+
+$('#qna-search').addEventListener('input', applyQnaFilters);
+$('#qna-filter-mine').addEventListener('change', applyQnaFilters);
 
 /* ===================== Groq API 키 설정 ===================== */
 function renderKeyBox() {
@@ -1784,6 +2082,18 @@ function getReviewerName() { return $('#reviewer-name').value.trim(); }
 $('#reviewer-name').value = localStorage.getItem(LS_REVIEWER_NAME) || '';
 $('#reviewer-name').addEventListener('change', () => localStorage.setItem(LS_REVIEWER_NAME, getReviewerName()));
 
+/* ===================== Q&A 질문자 이름 (이 브라우저에 기억) ===================== */
+const LS_ASKER_NAME = 'lips_asker_name';
+$('#qna-asker').value = localStorage.getItem(LS_ASKER_NAME) || '';
+$('#qna-asker').addEventListener('change', () => localStorage.setItem(LS_ASKER_NAME, $('#qna-asker').value.trim()));
+
+/* ===================== PWA 서비스워커 등록 (http/https로 호스팅했을 때만 동작) ===================== */
+if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('./sw.js').catch(e => console.warn('서비스워커 등록 실패:', e));
+  });
+}
+
 (async () => {
   renderKeyBox();
   if (!backendConfigured()) {
@@ -1793,6 +2103,7 @@ $('#reviewer-name').addEventListener('change', () => localStorage.setItem(LS_REV
   try { await seedDefaultGuidelinesIfNeeded(); } catch (e) { console.error(e); }
   try { await migrateLegacyLocalGuidelinesIfNeeded(); } catch (e) { console.error(e); }
   await refreshGuidelinesView();
+  try { await refreshCompareSessionSelect(); } catch (e) { console.error(e); }
 })();
 </script>
 

@@ -27,6 +27,11 @@ const SESSIONS_HEADERS = ['id', 'filename', 'created_at', 'items_json', 'reviewe
 const QNA_HEADERS = ['id', 'question', 'answer', 'used_docs_json', 'asked_by', 'created_at', 'hit_count'];
 const GUIDELINE_DOC_TYPES = ['지침', '공고문', '사례'];
 const SESSION_STATUSES = ['대기', '승인', '반려'];
+const ITEM_FEEDBACK_HEADERS = ['id', 'session_id', 'item_label', 'feedback', 'created_at'];
+
+// 드라이브 일괄 검토에서 한 파일당 이만큼(바이트)까지만 가져온다 - 너무 큰 스캔본 PDF가 Apps Script
+// 응답 크기/실행시간 한도를 넘기지 않도록 하는 안전장치. 더 큰 파일은 수동 업로드를 안내한다.
+const DRIVE_FILE_MAX_BYTES = 15 * 1024 * 1024;
 
 // 신뢰도 "낮음" Q&A 답변 발생 시 알림 메일을 받을 주소 - 필요하면 바꿔서 재배포하면 된다.
 const ADMIN_NOTIFY_EMAIL = 'jason@k-aia.or.kr';
@@ -67,6 +72,9 @@ function doGet(e) {
     if (action === 'list_sessions') return json_(listSessions_());
     if (action === 'list_qna') return json_(listQna_());
     if (action === 'list_guideline_archive') return json_(listGuidelineArchive_(e.parameter.source_file || ''));
+    if (action === 'list_item_feedback') return json_(listItemFeedback_());
+    if (action === 'list_drive_companies') return json_(listDriveCompanies_(e.parameter.folder_id || ''));
+    if (action === 'get_drive_file') return json_(getDriveFileBase64_(e.parameter.file_id || ''));
     if (action === 'setup_protection') return json_(protectAgainstManualEdits_());
     return json_({ error: '알 수 없는 action: ' + action });
   } catch (err) {
@@ -92,6 +100,8 @@ function doPost(e) {
     if (action === 'delete_qna') return json_(deleteQna_(body));
     if (action === 'bump_qna_hit') return json_(bumpQnaHit_(body));
     if (action === 'update_session_status') return json_(updateSessionStatus_(body));
+    if (action === 'save_item_feedback') return json_(saveItemFeedback_(body));
+    if (action === 'delete_item_feedback') return json_(deleteItemFeedback_(body));
     return json_({ error: '알 수 없는 action: ' + action });
   } catch (err) {
     return json_({ error: String(err) });
@@ -179,6 +189,99 @@ function updateSessionStatus_(body) {
     }
   }
   return { ok: false };
+}
+
+/* 판정 항목 단위 피드백(👍/👎) - 담당자가 개별 판정에 이견이 있으면 남긴다. 세션 자체를 바꾸지
+   않는 별도 로그라 Sessions/Guidelines만큼 무겁게 보호하지 않는다(저위험 append-only 로그). */
+function listItemFeedback_() {
+  const sh = getSheet_('ItemFeedback', ITEM_FEEDBACK_HEADERS);
+  const rows = sh.getDataRange().getValues().slice(1).filter(r => r[0]);
+  return rows.map(r => ({ id: r[0], session_id: r[1], item_label: r[2], feedback: r[3], created_at: r[4] }));
+}
+
+function saveItemFeedback_(body) {
+  const sh = getSheet_('ItemFeedback', ITEM_FEEDBACK_HEADERS);
+  const id = Utilities.getUuid();
+  const createdAt = new Date().toISOString();
+  const feedback = body.feedback === 'down' ? 'down' : 'up';
+  sh.appendRow([id, body.session_id || '', body.item_label || '', feedback, createdAt]);
+  return { id: id, created_at: createdAt };
+}
+
+/* 잘못 저장된 피드백(테스트 등) 정리용. UI에는 연결하지 않은 유지보수용 액션. */
+function deleteItemFeedback_(body) {
+  const sh = getSheet_('ItemFeedback', ITEM_FEEDBACK_HEADERS);
+  const data = sh.getDataRange().getValues();
+  for (let i = data.length - 1; i >= 1; i--) {
+    if (data[i][0] === body.id) { sh.deleteRow(i + 1); return { ok: true, deleted: 1 }; }
+  }
+  return { ok: true, deleted: 0 };
+}
+
+/* ===================== 구글드라이브 일괄 검토 =====================
+   폴더 URL만 붙여넣으면, 그 폴더 바로 아래의 기업별 하위폴더마다 사업계획서로 보이는 파일 하나씩을
+   찾아 브라우저(pdf.js)가 이어서 파싱할 수 있도록 base64로 내려준다. 실제 텍스트 추출/LLM 판정은
+   기존과 동일하게 브라우저에서 수행 - 여기서는 "어떤 파일을 가져올지"만 서버(Apps Script의 Drive
+   접근 권한)가 대신 찾아준다.
+   ⚠️ 이 기능은 DriveApp 접근 권한이 새로 필요하다 - 재배포 후 최초 1회 Apps Script 편집기에서
+   함수를 직접 실행해 권한을 수동 승인해야 동작한다. 공유 드라이브 폴더에서의 동작은 실제 폴더로
+   검증 전까지는 미확인 상태다. */
+function listDriveCompanies_(folderId) {
+  if (!folderId) return { error: '폴더 ID를 확인할 수 없습니다.' };
+  let root;
+  try {
+    root = DriveApp.getFolderById(folderId);
+  } catch (e) {
+    return { error: '폴더를 열 수 없습니다 (권한 또는 ID를 확인하세요): ' + e };
+  }
+  const companies = [];
+  const subfolders = root.getFolders();
+  while (subfolders.hasNext()) {
+    const folder = subfolders.next();
+    const picked = pickBusinessPlanFile_(folder);
+    companies.push({
+      company: folder.getName(),
+      folder_id: folder.getId(),
+      file_id: picked ? picked.getId() : '',
+      file_name: picked ? picked.getName() : '',
+      mime_type: picked ? picked.getMimeType() : '',
+      note: picked ? '' : '사업계획서로 보이는 PDF/HWPX 파일을 찾지 못했습니다',
+    });
+  }
+  if (!companies.length) return { error: '이 폴더 바로 아래에 기업별 하위폴더가 없습니다. 기업명 폴더들이 들어있는 상위 폴더 URL을 붙여넣어주세요.' };
+  return { companies: companies };
+}
+
+// "사업계획서"가 이름에 들어간 PDF/HWPX를 최우선으로, 없으면 폴더 내 첫 PDF/HWPX를 사업계획서로 간주.
+function pickBusinessPlanFile_(folder) {
+  const candidates = [];
+  const files = folder.getFiles();
+  while (files.hasNext()) {
+    const f = files.next();
+    const mime = f.getMimeType();
+    const isPdf = mime === MimeType.PDF;
+    const isHwpx = /\.hwpx$/i.test(f.getName());
+    if (isPdf || isHwpx) candidates.push(f);
+  }
+  if (!candidates.length) return null;
+  const named = candidates.find(f => f.getName().indexOf('사업계획서') >= 0);
+  return named || candidates[0];
+}
+
+function getDriveFileBase64_(fileId) {
+  if (!fileId) return { error: '파일 ID가 없습니다.' };
+  let file;
+  try {
+    file = DriveApp.getFileById(fileId);
+  } catch (e) {
+    return { error: '파일을 열 수 없습니다: ' + e };
+  }
+  const blob = file.getBlob();
+  const bytes = blob.getBytes();
+  if (bytes.length > DRIVE_FILE_MAX_BYTES) {
+    return { error: `파일이 너무 큽니다(${Math.round(bytes.length / 1024 / 1024)}MB). 이 파일은 수동으로 다운로드해 업로드해주세요.` };
+  }
+  return { name: file.getName(), mime_type: file.getMimeType(), base64: Utilities.base64Encode(bytes) };
 }
 
 /* 지침·공고문 개정 이력(감사로그) 조회 - Guidelines_Archive는 절대 삭제하지 않으므로, 이 문서명으로
