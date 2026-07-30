@@ -904,6 +904,10 @@ const SYSTEM_PROMPT = `당신은 중소벤처기업부 LIPS(혁신 소상공인 
 - 집행내용이 기재된 비목과 성격이 명백히 다르면(예: 외부 용역 계약 건이 "일반수용비"로 잡혀 있거나
   그 반대) → "수정필요"로 판정하고, reason에 왜 다른 비목이 맞는지, suggestion에 어떤 비목으로
   변경해야 하는지 구체적으로 쓰세요.
+- "일반수용비"(소모품·인쇄물·홍보물 구입 등 소모성·경상적 경비)에 "개발"(프로그램 개발, 시스템 개발,
+  앱 개발, 기능 개발, UX/UI 개발 등)이 포함된 집행내용이 있으면, 이는 일반수용비가 아니라
+  "일반용역비"로 분류되어야 합니다. cost_category_match를 "부적정"으로 표시하고 suggestion에
+  "일반용역비로 재분류 필요"라고 명시하세요.
 - 비목이 맞는지 애매하거나(예: 집행내용 설명이 부실해 성격을 특정하기 어려움) 관련 정의가 지침에
   없어 판단이 불확실하면 → "확인필요"로 판정하세요.
 
@@ -911,6 +915,20 @@ const SYSTEM_PROMPT = `당신은 중소벤처기업부 LIPS(혁신 소상공인 
 근거로 해당 금액이 한도·비율·절차 요건에 부합하는지 추가로 판정하세요. 1단계와 2단계 중 더 심각한
 쪽(불가 > 수정필요 > 확인필요 > 적합 순)을 최종 verdict로 채택하고, reason에는 두 단계에서 확인한
 내용을 모두 포함하세요.
+
+[2단계 필수 확인 규칙 - 주관기관 실무 기준, 예외 없이 아래 순서로 확인]
+- (나라장터 기준) 하나의 집행 항목(하나의 계약 건) 합계 금액이 20,000,000원을 "초과"하면, 국가계약법
+  시행령상 수의계약 기준금액을 넘어 나라장터를 통한 입찰 절차가 의무입니다. 소상공인의 사업비
+  집행만으로는 이 절차를 수행할 수 없으므로, 이런 항목은 지침 문구를 더 찾아볼 것도 없이 usability를
+  "사용불가", verdict를 "불가"로 판정하고 reason에 "단일 항목 금액이 2천만원을 초과해 나라장터
+  입찰 절차가 필요하므로 사업비로 직접 집행 불가"라고 명시하세요. 정확히 20,000,000원이면 초과가
+  아니므로 이 규칙은 적용하지 마세요. 세부 항목 여러 개가 사실상 하나의 계약(같은 업체·같은 용역)
+  으로 묶여 발주되는 것으로 보이면 그 합계 기준으로 판단하세요.
+- (재료비 자산성 물품 금지) "재료비" 비목에 기재된 항목이 시제품·키오스크·패널·서버·노트북·PC·
+  카메라 등 개별 자산으로 등록될 수 있는 내구재·장비(특히 "OO 1대", "OO 2대"처럼 대수로 세는
+  물품)이면, 이는 재료비로 인정되는 소모성 자재가 아닙니다. usability를 "사용불가", verdict를
+  "불가"로 판정하고 reason에 "자산으로 등록되는 내구재·장비는 재료비 지원 대상이 아님"이라고
+  명시하세요.
 
 위 두 단계의 결론은 reason 문장 속에 묻어두지 말고, 아래 JSON의 전용 필드(cost_category,
 cost_category_match, usability)에도 반드시 명확하게 별도로 채우세요 — 담당자가 표만 훑어봐도
@@ -1047,8 +1065,63 @@ function verifyInKindLaborMath(text) {
   return warnings;
 }
 
+function extractSectionBody(text, labelPattern, nextLabelPatterns) {
+  const startMatch = labelPattern.exec(text);
+  if (!startMatch) return '';
+  const start = startMatch.index + startMatch[0].length;
+  let end = text.length;
+  for (const pat of nextLabelPatterns) {
+    pat.lastIndex = 0;
+    const rest = text.slice(start);
+    const m = pat.exec(rest);
+    if (m && start + m.index < end) end = start + m.index;
+  }
+  return text.slice(start, end);
+}
+
+function detectOverThresholdLineItems(text) {
+  let body = text;
+  const tableStart = /집행내용|금액\s*\(\s*원\s*\)/.exec(text);
+  if (tableStart) body = text.slice(tableStart.index);
+  const totalLabel = /합\s*계/g;
+  let lastIdx = -1, m;
+  while ((m = totalLabel.exec(body))) lastIdx = m.index;
+  if (lastIdx > 0) body = body.slice(0, lastIdx);
+  body = body.replace(/\([^()]*\)/g, '');
+
+  const amounts = [...body.matchAll(/\d{1,3}(?:,\d{3}){2,}/g)]
+    .map(x => parseInt(x[0].replace(/,/g, ''), 10))
+    .filter(n => n > 20000000);
+  if (!amounts.length) return [];
+  const unique = [...new Set(amounts)].sort((a, b) => b - a);
+  return [`사업비 집행 항목 중 20,000,000원을 초과하는 금액(${unique.map(n => n.toLocaleString()).join(', ')}원)이 발견되었습니다 — 국가계약법상 수의계약 기준금액(2천만원)을 넘으면 나라장터 입찰 절차가 필요해 소상공인 사업비로 직접 집행하기 어려울 수 있으니, 해당 항목이 단일 계약 건인지 확인하세요. (표 구조 인식 한계로 총사업비·정부지원금 등 다른 숫자가 섞여 있을 수 있음 - 원문 대조 필요)`];
+}
+
+function detectDevelopmentInGeneralSupplies(text) {
+  const body = extractSectionBody(text, /일반\s*수용비/, [/임차료/, /재료비/, /인건비/, /합\s*계/]);
+  if (!body || !/개발/.test(body)) return [];
+  return [`"일반수용비" 항목의 집행내용에 "개발"이 포함되어 있습니다 — 일반수용비는 소모품·수수료성 경비이며, 개발 성격의 용역은 통상 "일반용역비"로 분류되어야 하니 비목 분류를 확인하세요.`];
+}
+
+function detectAssetItemsInMaterials(text) {
+  const body = extractSectionBody(text, /재료비/, [/임차료/, /인건비/, /합\s*계/]);
+  if (!body) return [];
+  const unitMatch = body.match(/\d+\s*대\b/);
+  const assetKeywords = ['키오스크', '패널', '노트북', '서버', '카메라', '프린터', '모니터', '태블릿', 'PC', '드론'];
+  const foundKeywords = assetKeywords.filter(k => body.includes(k));
+  if (!unitMatch && !foundKeywords.length) return [];
+  const signal = [unitMatch ? `"${unitMatch[0]}" 단위 표기` : null, foundKeywords.length ? `키워드(${foundKeywords.join(', ')})` : null].filter(Boolean).join(', ');
+  return [`재료비 항목에서 자산성 물품으로 보이는 신호(${signal})가 발견되었습니다 — 재료비는 소모성 자재만 인정되며, 개별 자산으로 등록될 장비·기기는 재료비로 지원되기 어려우니 확인하세요. (표 구조 인식 한계로 실제와 다를 수 있음 - 원문 대조 필요)`];
+}
+
 function runBudgetPrechecks(budgetSection) {
-  return [...detectPlaceholderArtifacts(budgetSection), ...verifyInKindLaborMath(budgetSection)];
+  return [
+    ...detectPlaceholderArtifacts(budgetSection),
+    ...verifyInKindLaborMath(budgetSection),
+    ...detectOverThresholdLineItems(budgetSection),
+    ...detectDevelopmentInGeneralSupplies(budgetSection),
+    ...detectAssetItemsInMaterials(budgetSection),
+  ];
 }
 
 async function reviewBusinessPlan(planText, programTag, doubleCheck) {
