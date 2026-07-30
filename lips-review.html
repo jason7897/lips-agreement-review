@@ -865,17 +865,37 @@ const SYSTEM_PROMPT = `당신은 중소벤처기업부 LIPS(혁신 소상공인 
 
 [필수 점검 체크리스트 - 항목마다 반드시 아래 순서로 확인. 하나라도 해당하면 그 즉시 결론 확정]
 1. 이 항목(하나의 계약 건) 합계 금액이 20,000,000원을 "초과"하는가? → 국가계약법상 수의계약
-   기준금액을 넘어 나라장터 입찰 절차가 필요하므로 usability="사용불가", verdict="불가".
-2. "재료비"에 기재된 물품이 시제품·키오스크·패널·서버·노트북·PC·카메라 등 개별 자산으로 등록될
-   내구재·장비인가(특히 "OO 1대"처럼 대수로 세는 물품)? → 재료비는 소모성 자재만 인정되므로
-   usability="사용불가", verdict="불가".
+   기준금액을 넘어 나라장터 입찰 절차가 필요하므로 usability="사용불가", verdict="불가". 단,
+   비목(세목)이 서로 다른 별개 지출이라면(예: 같은 업체에 일반용역비 15,000,000원 + 재료비
+   30,000,000원처럼 성격이 다른 계약을 각각 체결) 합산하지 말고 각 비목별 금액으로 판단하세요
+   — 이 2천만원 기준은 정당한 계약을 인위적으로 쪼개는 "과업 쪼개기"를 막기 위한 것이지,
+   원래 성격이 다른 지출을 합산해 불리하게 판단하라는 뜻이 아닙니다. 다만 같은 비목의 유사한
+   내용을 여러 항목으로 나눠 각각 2천만원 이하로 맞춘 것으로 보이면(과업 쪼개기 의심) 이
+   규칙을 그대로 적용해 "불가"로 판정하세요.
+2. "재료비"·"임차료"·인테리어/리모델링 관련 항목에 기재된 물품이 시제품·키오스크·패널·서버·
+   노트북·PC·카메라·전구·간판·책상·의자·주방집기 등 개별 자산으로 등록될 내구재·장비인가
+   (특히 "OO 1대"처럼 대수로 세는 물품)? → 이런 자산성 물품은 재료비·임차료·인테리어 예산으로
+   지원되지 않으므로(렌탈이면 가능할 수 있음) usability="사용불가", verdict="불가".
 3. "일반수용비"에 "개발"(프로그램/시스템/앱/기능/UX·UI 개발 등)이 포함된 집행내용인가? →
    일반용역비로 분류되어야 할 항목이므로 cost_category_match="부적정", verdict 최소 "수정필요".
-4. 항목명·집행내용 자리에 "OOO", "내용", "00원"처럼 양식 견본 문구가 실제 값으로 안 바뀐 채 남아
+4. 집행내용에 "컨설팅"이 포함되어 있는가? → 컨설팅은 통상 사업비 집행 대상이 아니므로
+   usability="사용불가", verdict="불가".
+5. AWS·SaaS·Claude Code·ChatGPT·Notion 등 범용 구독형 클라우드 시스템·서비스 이용료인가?
+   → 범용 시스템은 사업비 지원 대상이 아니므로 usability="사용불가", verdict="불가".
+6. 프랜차이즈 가맹점(협약 당사자 기업과 사업자등록번호가 다른 별도 사업장, 예: 본사가 운영하는
+   가맹점 매장)에 대한 리모델링·설비 등 지출인가? → 협약 당사자 본인의 사업장이 아니므로
+   usability="사용불가", verdict="불가".
+7. 인플루언서·개인·유튜브 PPL 관련 지출인가? → "일반용역비"로 분류되어야 합니다(다른 비목으로
+   잡혀 있으면 cost_category_match="부적정"). 유사하게 홈쇼핑 송출비는 "일반수용비", 유튜브
+   광고·제작비는 "일반용역비", 임상시험·인체적용시험처럼 큰 금액의 시험은 "일반용역비"로
+   분류되는 것이 통상적입니다.
+8. "전문가활용비" 항목에 일 단가가 명시되어 있고 300,000원/일을 초과하는가? → 한도 초과이므로
+   verdict="수정필요" 또는 "불가".
+9. 항목명·집행내용 자리에 "OOO", "내용", "00원"처럼 양식 견본 문구가 실제 값으로 안 바뀐 채 남아
    있는가(금액이 0이어도)? → 작성 미완료 가능성이 있으므로 verdict="확인필요".
-5. 인건비(현물) 금액이 "참여율×월급여×참여개월수" 계산과 실제로 일치하는가? 참여개월수가 이
-   사업의 협약 기간(보통 6~12개월)보다 뚜렷하게 긴 값(예: 16개월)으로 적혀 있지는 않은가? →
-   계산이 안 맞거나 개월수가 부자연스러우면 verdict="확인필요".
+10. 인건비(현물) 금액이 "참여율×월급여×참여개월수" 계산과 실제로 일치하는가? 참여개월수가 이
+    사업의 협약 기간(보통 6~12개월)보다 뚜렷하게 긴 값(예: 16개월)으로 적혀 있지는 않은가? →
+    계산이 안 맞거나 개월수가 부자연스러우면 verdict="확인필요".
 이 체크리스트에 해당하는 항목이 없을 때만 아래 실무 참고 패턴과 [운영지침 근거 조항]을 근거로
 추가 판정을 이어가세요.
 
@@ -1157,15 +1177,61 @@ function detectDevelopmentInGeneralSupplies(text) {
   return [`"일반수용비" 항목의 집행내용에 "개발"이 포함되어 있습니다 — 일반수용비는 소모품·수수료성 경비이며, 개발 성격의 용역은 통상 "일반용역비"로 분류되어야 하니 비목 분류를 확인하세요.`];
 }
 
+// 재료비뿐 아니라 임차료·인테리어·리모델링 관련 지출에도 자산성 물품(전구/간판/책상/의자/
+// 주방집기/키오스크/장비 등, 특히 "OO 1대"처럼 대수로 세는 물품)은 지원 대상이 아니라는
+// 주관기관 실무 기준(2026-07-30 사용자 직접 학습)을 반영. 정확한 표 구조 경계 대신, 각 관련
+// 라벨이 등장하는 지점 주변(200자 이내)에 자산성 신호가 있는지 훑는 방식이라 라벨 간 거리가
+// 가까우면 다른 항목의 신호를 함께 주울 수 있음(참고용 경고이므로 감내).
 function detectAssetItemsInMaterials(text) {
-  const body = extractSectionBody(text, /재료비/, [/임차료/, /인건비/, /합\s*계/]);
-  if (!body) return [];
-  const unitMatch = body.match(/\d+\s*대\b/);
-  const assetKeywords = ['키오스크', '패널', '노트북', '서버', '카메라', '프린터', '모니터', '태블릿', 'PC', '드론'];
-  const foundKeywords = assetKeywords.filter(k => body.includes(k));
-  if (!unitMatch && !foundKeywords.length) return [];
-  const signal = [unitMatch ? `"${unitMatch[0]}" 단위 표기` : null, foundKeywords.length ? `키워드(${foundKeywords.join(', ')})` : null].filter(Boolean).join(', ');
-  return [`재료비 항목에서 자산성 물품으로 보이는 신호(${signal})가 발견되었습니다 — 재료비는 소모성 자재만 인정되며, 개별 자산으로 등록될 장비·기기는 재료비로 지원되기 어려우니 확인하세요. (표 구조 인식 한계로 실제와 다를 수 있음 - 원문 대조 필요)`];
+  const labelRe = /재료비|임차료|인테리어|리모델링/g;
+  const assetKeywords = ['키오스크', '패널', '노트북', '서버', '카메라', '프린터', '모니터', '태블릿', 'PC', '드론', '전구', '간판', '책상', '의자', '주방집기'];
+  const warnings = [];
+  const seen = new Set();
+  let m;
+  while ((m = labelRe.exec(text)) && warnings.length < 5) {
+    const label = m[0];
+    const window = text.slice(m.index, m.index + 200);
+    const unitMatch = window.match(/\d+\s*대\b/);
+    const foundKeywords = assetKeywords.filter(k => window.includes(k));
+    if (!unitMatch && !foundKeywords.length) continue;
+    const signal = [unitMatch ? `"${unitMatch[0]}" 단위 표기` : null, foundKeywords.length ? `키워드(${foundKeywords.join(', ')})` : null].filter(Boolean).join(', ');
+    const key = `${label}:${signal}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    warnings.push(`"${label}" 관련 항목 근처에서 자산성 물품으로 보이는 신호(${signal})가 발견되었습니다 — 재료비·임차료·인테리어 관련 지출에서 개별 자산으로 등록될 장비·기기·집기는 지원 대상이 아니니 확인하세요. (표 구조 인식 한계로 실제와 다를 수 있음 - 원문 대조 필요)`);
+  }
+  return warnings;
+}
+
+function detectConsultingItems(text) {
+  if (!/컨설팅/.test(text)) return [];
+  return [`집행내용에 "컨설팅"이 포함되어 있습니다 — 컨설팅은 통상 사업비 집행 대상이 아니므로 사용 가능 여부를 확인하세요.`];
+}
+
+function detectSaaSCloudItems(text) {
+  const keywords = ['SaaS', 'AWS', 'Claude Code', 'ChatGPT', 'Notion', 'GCP', 'Azure'];
+  const found = keywords.filter(k => text.includes(k));
+  if (!found.length) return [];
+  return [`집행내용에 범용 SaaS·클라우드 시스템으로 보이는 항목(${found.join(', ')})이 있습니다 — 범용적인 구독형 시스템·서비스는 통상 사업비 지원 대상이 아니므로 사용 가능 여부를 확인하세요.`];
+}
+
+// 사업비 표 상단 요약 행("총사업비 100% / 정부지원금 70% / 현금 10% / 현물 20%")의 실제 비율이
+// 지침 한도를 벗어나는지 확인. 정확히 한도값이면(예: 70.0%) 위반이 아니므로 소폭의 허용오차(0.5%p)를
+// 둔다 - 반올림으로 69.96%처럼 표기되는 경우가 실제로 잦았음.
+function detectBudgetRatioViolation(text) {
+  const re = /([\d,]{7,})\s*원?\s*100%\s*([\d,]{5,})\s*원?\s*([\d.]+)%\s*([\d,]{4,})\s*원?\s*([\d.]+)%\s*([\d,]{4,})\s*원?\s*([\d.]+)%/;
+  const m = re.exec(text);
+  if (!m) return [];
+  const govPct = parseFloat(m[3]);
+  const cashPct = parseFloat(m[5]);
+  const inkindPct = parseFloat(m[7]);
+  const EPS = 0.5;
+  const issues = [];
+  if (govPct > 70 + EPS) issues.push(`정부지원금 비율이 ${govPct}%로 70% 상한을 초과`);
+  if (cashPct < 10 - EPS) issues.push(`현금 비율이 ${cashPct}%로 10% 하한에 미달`);
+  if (inkindPct > 20 + EPS) issues.push(`현물 비율이 ${inkindPct}%로 20% 상한을 초과`);
+  if (!issues.length) return [];
+  return [`사업비 구성 비율표 확인 필요 — ${issues.join(', ')}하는 것으로 보입니다. (표 구조 인식 한계로 오탐일 수 있음 - 원문 재확인 필요)`];
 }
 
 function runBudgetPrechecks(budgetSection) {
@@ -1177,6 +1243,9 @@ function runBudgetPrechecks(budgetSection) {
     ...detectDevelopmentInGeneralSupplies(budgetSection),
     ...detectAssetItemsInMaterials(budgetSection),
     ...detectTotalRowMismatch(budgetSection),
+    ...detectBudgetRatioViolation(budgetSection),
+    ...detectConsultingItems(budgetSection),
+    ...detectSaaSCloudItems(budgetSection),
   ];
 }
 
