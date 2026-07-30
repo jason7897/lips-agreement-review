@@ -853,7 +853,11 @@ function logClientError(context, err) {
 }
 
 /* ===================== Groq LLM 호출 ===================== */
-const REVIEW_MODEL = 'llama-3.3-70b-versatile';
+// 2026-07-30: 무료(on_demand) 티어의 llama-3.3-70b-versatile 일일 토큰 한도(100,000 TPD)를
+// 실사용 중 반복적으로 소진해 8b 경량 모델로 전환(무료 한도가 훨씬 넉넉함). 대신 복잡한 숫자
+// 계산·법조항 해석 정확도는 70B 대비 다소 떨어질 수 있음 - 특히 사업비 검토처럼 정밀한 판단이
+// 중요한 곳에서 판정 품질이 체감상 떨어지면 되돌리는 것도 고려할 것.
+const REVIEW_MODEL = 'llama-3.1-8b-instant';
 
 const SYSTEM_PROMPT = `당신은 중소벤처기업부 LIPS(혁신 소상공인 투자연계지원) 사업의 주관기관 협약 담당자입니다.
 사업계획서에서 추출한 [사업비 구성 및 집행계획] 표를 검토합니다. 이 표는 PDF에서 그대로 추출되어
